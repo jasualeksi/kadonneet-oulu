@@ -36,6 +36,15 @@ import {
 import "./styles.css";
 import { accountFromUser, supabase, supabaseConfigured } from "./supabase";
 import { validateUsername } from "./usernameModeration";
+import {
+  createComment,
+  createMessage,
+  createNotice,
+  fetchMessages,
+  fetchNotices,
+  removeNotice,
+  setNoticeFound,
+} from "./dataService";
 
 const AREAS = [
   "Haukipudas",
@@ -166,6 +175,21 @@ function App() {
     });
     return () => listener.subscription.unsubscribe();
   }, []);
+  useEffect(() => {
+    if (!supabase) return;
+    fetchNotices()
+      .then(setData)
+      .catch(() => notify("Ilmoituksia ei voitu ladata tietokannasta"));
+  }, []);
+  useEffect(() => {
+    if (!supabase || !user?.id) {
+      setMessages([]);
+      return;
+    }
+    fetchMessages(user.id)
+      .then(setMessages)
+      .catch(() => notify("Viestejä ei voitu ladata"));
+  }, [user?.id]);
   const go = (v) => {
     setView(v);
     setMenu(false);
@@ -191,35 +215,48 @@ function App() {
       setPending(null);
     }
   };
-  const add = (n) => {
-    setData([
-      {
-        ...n,
-        id: Date.now(),
-        date: new Date().toLocaleDateString("fi-FI"),
-        created: Date.now(),
-        user: user.username,
-        owner: user.email,
-        comments: [],
-      },
-      ...data,
-    ]);
-    notify("Ilmoitus julkaistiin");
-    go("mine");
+  const add = async (form) => {
+    try {
+      const notice = await createNotice(form, user);
+      setData((current) => [notice, ...current]);
+      notify("Ilmoitus julkaistiin");
+      go("mine");
+    } catch (error) {
+      notify(`Ilmoituksen julkaisu epäonnistui: ${error.message}`);
+    }
   };
-  const remove = (id) => {
-    setData(data.filter((n) => n.id !== id));
-    notify("Ilmoitus poistettiin");
+  const remove = async (id) => {
+    try {
+      await removeNotice(id);
+      setData((current) => current.filter((n) => n.id !== id));
+      notify("Ilmoitus poistettiin");
+    } catch {
+      notify("Ilmoitusta ei voitu poistaa");
+    }
   };
-  const markFound = (id) => {
-    setData(
-      data.map((notice) =>
-        notice.id === id
-          ? { ...notice, found: true, foundAt: Date.now() }
-          : notice,
-      ),
-    );
-    notify("Ilmoitus merkittiin löytyneeksi");
+  const markFound = async (id) => {
+    try {
+      const updated = await setNoticeFound(id);
+      setData((current) => current.map((n) => (n.id === id ? updated : n)));
+      notify("Ilmoitus merkittiin löytyneeksi");
+    } catch {
+      notify("Ilmoitusta ei voitu päivittää");
+    }
+  };
+  const addNoticeComment = async (noticeId, text, file) => {
+    const comment = await createComment(noticeId, text, file, user);
+    const applyComment = (notice) =>
+      notice.id === noticeId
+        ? { ...notice, comments: [...(notice.comments || []), comment] }
+        : notice;
+    setData((current) => current.map(applyComment));
+    setActive((current) => (current ? applyComment(current) : current));
+    notify("Kommentti lähetettiin");
+  };
+  const sendPrivateMessage = async (recipientId, recipientName, text) => {
+    const sent = await createMessage(recipientId, recipientName, text, user);
+    setMessages((current) => [sent, ...current]);
+    notify("Yksityisviesti lähetettiin");
   };
   return (
     <div className="app">
@@ -240,7 +277,7 @@ function App() {
         {view === "new" && <NewNotice onSubmit={add} />}
         {view === "mine" && (
           <Mine
-            data={data.filter((n) => n.owner === user?.email)}
+            data={data.filter((n) => n.owner === user?.id)}
             open={setActive}
             remove={remove}
             markFound={markFound}
@@ -284,17 +321,8 @@ function App() {
             setPending("notices");
             setLogin(true);
           }}
-          update={(updated) => {
-            setData(data.map((n) => (n.id === updated.id ? updated : n)));
-            setActive(updated);
-          }}
-          message={(to, text) => {
-            setMessages([
-              ...messages,
-              { id: Date.now(), to, from: user.username, text, date: "Nyt" },
-            ]);
-            notify("Yksityisviesti lähetettiin");
-          }}
+          addComment={addNoticeComment}
+          message={sendPrivateMessage}
         />
       )}
       {toast && (
@@ -657,10 +685,14 @@ function NewNotice({ onSubmit }) {
     contactEmail: "",
     reward: "",
     preview: "",
+    imageFile: null,
   });
-  const submit = (e) => {
+  const [submitting, setSubmitting] = useState(false);
+  const submit = async (e) => {
     e.preventDefault();
-    onSubmit(f);
+    setSubmitting(true);
+    await onSubmit(f);
+    setSubmitting(false);
   };
   return (
     <section className="page narrow">
@@ -787,10 +819,15 @@ function NewNotice({ onSubmit }) {
           <label className="upload">
             <input
               type="file"
-              accept="image/*"
+              accept="image/jpeg,image/png,image/webp"
               onChange={(e) => {
                 const file = e.target.files[0];
-                if (file) setF({ ...f, preview: URL.createObjectURL(file) });
+                if (file)
+                  setF({
+                    ...f,
+                    preview: URL.createObjectURL(file),
+                    imageFile: file,
+                  });
               }}
             />
             {f.preview ? (
@@ -805,8 +842,8 @@ function NewNotice({ onSubmit }) {
           </label>
         </FormBlock>
         <div className="formactions">
-          <button className="primary">
-            Julkaise ilmoitus <ArrowRight />
+          <button className="primary" disabled={submitting}>
+            {submitting ? "Julkaistaan…" : "Julkaise ilmoitus"} <ArrowRight />
           </button>
         </div>
         <p className="expiry">
@@ -998,23 +1035,27 @@ function Auth({ close, login, initialMode }) {
   );
 }
 
-function NoticeDetail({ notice, close, user, requireLogin, update, message }) {
-  const [text, setText] = useState(""),
-    [image, setImage] = useState(""),
-    [dm, setDm] = useState(false);
-  const comment = () => {
+function NoticeDetail({ notice, close, user, requireLogin, addComment, message }) {
+  const [commentText, setCommentText] = useState(""),
+    [imageFile, setImageFile] = useState(null),
+    [dmText, setDmText] = useState(""),
+    [dm, setDm] = useState(false),
+    [sending, setSending] = useState(false),
+    [actionError, setActionError] = useState("");
+  const comment = async () => {
     if (!user) return requireLogin();
-    if (!text && !image) return;
-    const n = {
-      ...notice,
-      comments: [
-        ...(notice.comments || []),
-        { id: Date.now(), user: user.username, text, image },
-      ],
-    };
-    update(n);
-    setText("");
-    setImage("");
+    if (!commentText.trim() && !imageFile) return;
+    setSending(true);
+    setActionError("");
+    try {
+      await addComment(notice.id, commentText, imageFile);
+      setCommentText("");
+      setImageFile(null);
+    } catch (error) {
+      setActionError(`Kommenttia ei voitu lähettää: ${error.message}`);
+    } finally {
+      setSending(false);
+    }
   };
   return (
     <div className="modalback detailback">
@@ -1054,28 +1095,39 @@ function NoticeDetail({ notice, close, user, requireLogin, update, message }) {
                 <Mail /> {notice.contactEmail}
               </a>
             </div>
-            <button
-              className="primary"
-              onClick={() => (user ? setDm(true) : requireLogin())}
-            >
-              <Send /> Lähetä yksityisviesti
-            </button>
+            {user?.id !== notice.owner && (
+              <button
+                className="primary"
+                onClick={() => (user ? setDm(true) : requireLogin())}
+              >
+                <Send /> Lähetä yksityisviesti
+              </button>
+            )}
           </div>
         </div>
         {dm && (
           <div className="dm">
             <h3>Yksityisviesti käyttäjälle {notice.user}</h3>
             <textarea
-              value={text}
-              onChange={(e) => setText(e.target.value)}
+              value={dmText}
+              onChange={(e) => setDmText(e.target.value)}
               placeholder="Kirjoita viesti"
             />
             <button
               className="primary"
-              onClick={() => {
-                message(notice.user, text);
-                setDm(false);
-                setText("");
+              disabled={sending || !dmText.trim()}
+              onClick={async () => {
+                setSending(true);
+                setActionError("");
+                try {
+                  await message(notice.owner, notice.user, dmText);
+                  setDm(false);
+                  setDmText("");
+                } catch (error) {
+                  setActionError(`Viestiä ei voitu lähettää: ${error.message}`);
+                } finally {
+                  setSending(false);
+                }
               }}
             >
               Lähetä
@@ -1095,8 +1147,8 @@ function NoticeDetail({ notice, close, user, requireLogin, update, message }) {
           ))}
           {!notice.comments?.length && <p className="muted">Ei kommentteja.</p>}
           <textarea
-            value={dm ? "" : text}
-            onChange={(e) => setText(e.target.value)}
+            value={commentText}
+            onChange={(e) => setCommentText(e.target.value)}
             placeholder="Kirjoita havainto tai kommentti"
             disabled={dm}
           />
@@ -1105,18 +1157,19 @@ function NoticeDetail({ notice, close, user, requireLogin, update, message }) {
               <ImagePlus /> Lisää kuva
               <input
                 type="file"
-                accept="image/*"
+                accept="image/jpeg,image/png,image/webp"
                 onChange={(e) => {
                   const f = e.target.files[0];
-                  if (f) setImage(URL.createObjectURL(f));
+                  if (f) setImageFile(f);
                 }}
               />
             </label>
-            {image && <span>Kuva valittu</span>}
-            <button className="primary" onClick={comment}>
+            {imageFile && <span>Kuva valittu</span>}
+            <button className="primary" onClick={comment} disabled={sending}>
               <Send /> Lähetä
             </button>
           </div>
+          {actionError && <div className="autherror">{actionError}</div>}
         </div>
       </div>
     </div>
@@ -1169,7 +1222,7 @@ function Messages({ messages }) {
               <UserRound />
             </span>
             <div>
-              <b>Vastaanottaja: {m.to}</b>
+              <b>{m.incoming ? `Lähettäjä: ${m.from}` : `Vastaanottaja: ${m.to}`}</b>
               <p>{m.text}</p>
               <small>{m.date}</small>
             </div>

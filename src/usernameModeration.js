@@ -3,7 +3,7 @@ const blockedParts = [
   "kusipaa", "kyrpa", "mulkku", "huora", "lutka", "neekeri", "nekru",
   "ryssa", "hintti", "natsi", "nazi", "hitler", "whitepower", "retard",
   "admin", "administrator", "yllapito", "moderaattori", "kadonneetoulu",
-  "poliisi",
+  "poliisi", "nigga", "nigger", "niga"
 ];
 
 export function normalizeUsername(value) {

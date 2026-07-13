@@ -709,9 +709,7 @@ function Header({ user, view, go, protectedGo, setLogin, logout, isAdmin, menu, 
         <button onClick={() => go("info")}><CircleHelp /> Ohjeet</button>
         {user && (
           <>
-            <button onClick={() => go("mine")}><ClipboardList /> Omat ilmoitukset</button>
             <button onClick={() => go("messages")}><MessageCircle /> Viestit</button>
-            <button onClick={() => go("saved")}><Bookmark /> Tallennetut</button>
             {isAdmin && <button onClick={() => go("admin")}><ShieldCheck /> Ylläpito</button>}
             <button className="mobile-account" onClick={() => go("settings")}>
               <Settings /> Asetukset

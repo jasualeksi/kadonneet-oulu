@@ -151,6 +151,17 @@ export async function setNoticeFound(id) {
   return mapNotice(data);
 }
 
+export async function reactivateNotice(id) {
+  const { data, error } = await supabase
+    .from("notices")
+    .update({ status: "open", found_at: null })
+    .eq("id", id)
+    .select("*, comments(*)")
+    .single();
+  if (error) throw error;
+  return mapNotice(data);
+}
+
 export async function createComment(noticeId, text, file, user) {
   const uploadedImage = await uploadImage(file, user.id, "comments");
   const { data, error } = await supabase

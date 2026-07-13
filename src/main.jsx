@@ -43,6 +43,7 @@ import {
   Flag,
   Bookmark,
   BookmarkCheck,
+  RotateCcw,
 } from "lucide-react";
 import "./styles.css";
 import { accountFromUser, supabase, supabaseConfigured } from "./supabase";
@@ -56,6 +57,7 @@ import {
   fetchNotices,
   removeNotice,
   setNoticeFound,
+  reactivateNotice,
   fetchSavedNoticeIds,
   saveNotice,
   unsaveNotice,
@@ -404,6 +406,16 @@ function App() {
       notify("Ilmoitusta ei voitu päivittää");
     }
   };
+  const reopenNotice = async (id) => {
+    try {
+      const updated = await reactivateNotice(id);
+      setData((current) => current.map((n) => (n.id === id ? updated : n)));
+      setActive((current) => (current?.id === id ? updated : current));
+      notify("Ilmoitus aktivoitiin uudelleen");
+    } catch {
+      notify("Ilmoitusta ei voitu aktivoida uudelleen");
+    }
+  };
   const addNoticeComment = async (noticeId, text, file) => {
     const comment = await createComment(noticeId, text, file, user);
     const applyComment = (notice) =>
@@ -490,6 +502,7 @@ function App() {
             open={openNotice}
             remove={remove}
             markFound={markFound}
+            reopenNotice={reopenNotice}
             edit={editNotice}
             report={startReport}
             savedIds={savedIds}
@@ -972,7 +985,7 @@ function TypeIcon({ type }) {
   return <UserRound />;
 }
 
-function Card({ n, open, remove, markFound, edit, report, saved, toggleSaved }) {
+function Card({ n, open, remove, markFound, reopenNotice, edit, report, saved, toggleSaved }) {
   return (
     <article className={`card ${n.found ? "found" : ""}`} onClick={open}>
       <div className="photo">
@@ -1037,10 +1050,29 @@ function Card({ n, open, remove, markFound, edit, report, saved, toggleSaved }) 
             className="foundbtn"
             onClick={(e) => {
               e.stopPropagation();
+              const confirmed = window.confirm(
+                "Oletko varma, että haluat merkitä tämän löytyneeksi? Ilmoitus poistetaan automaattisesti viiden vuorokauden kuluttua. Voit aktivoida sen uudelleen ennen poistamista.",
+              );
+              if (!confirmed) return;
               markFound(n.id);
             }}
           >
             <CheckCircle2 /> Merkitse löytyneeksi
+          </button>
+        )}
+        {reopenNotice && n.found && (
+          <button
+            className="foundbtn reactivatebtn"
+            onClick={(e) => {
+              e.stopPropagation();
+              const confirmed = window.confirm(
+                "Aktivoidaanko tämä ilmoitus uudelleen? Se palautuu avoimeksi alkuperäisellä julkaisuajallaan.",
+              );
+              if (!confirmed) return;
+              reopenNotice(n.id);
+            }}
+          >
+            <RotateCcw /> Aktivoi uudelleen
           </button>
         )}
         {edit && (
@@ -1718,7 +1750,7 @@ function PublicProfile({ selected, notices, openNotice, report, savedIds, toggle
   );
 }
 
-function Mine({ data, open, remove, markFound, edit, report, savedIds, toggleSaved, protectedGo }) {
+function Mine({ data, open, remove, markFound, reopenNotice, edit, report, savedIds, toggleSaved, protectedGo }) {
   return (
     <section className="page">
       <div className="pagehead">
@@ -1740,6 +1772,7 @@ function Mine({ data, open, remove, markFound, edit, report, savedIds, toggleSav
               open={() => open(n)}
               remove={remove}
               markFound={markFound}
+              reopenNotice={reopenNotice}
               edit={edit}
               report={report}
               saved={savedIds.includes(n.id)}

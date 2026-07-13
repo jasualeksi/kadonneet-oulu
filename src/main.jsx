@@ -604,7 +604,12 @@ function App() {
           />
         )}
         {view === "admin" && isAdmin && (
-          <AdminPanel notify={notify} removeNotice={remove} />
+          <AdminPanel
+            notify={notify}
+            removeNotice={remove}
+            notices={data}
+            openNotice={openNotice}
+          />
         )}
         {view === "profile" && publicProfile && (
           <PublicProfile
@@ -2448,12 +2453,15 @@ function ReportModal({ notice, close, submit }) {
   );
 }
 
-function AdminPanel({ notify, removeNotice }) {
+function AdminPanel({ notify, removeNotice, notices, openNotice }) {
   const [reports, setReports] = useState([]),
     [loading, setLoading] = useState(true),
+    [section, setSection] = useState("reports"),
     [filter, setFilter] = useState("pending"),
+    [noticeQuery, setNoticeQuery] = useState(""),
     [error, setError] = useState(""),
     [reportToDelete, setReportToDelete] = useState(null),
+    [noticeToDelete, setNoticeToDelete] = useState(null),
     [deleting, setDeleting] = useState(false);
 
   const loadReports = () => {
@@ -2484,46 +2492,110 @@ function AdminPanel({ notify, removeNotice }) {
     setDeleting(false);
     if (removed) setReportToDelete(null);
   };
+  const removeManagedNotice = async () => {
+    if (!noticeToDelete) return;
+    setDeleting(true);
+    const removed = await removeNotice(noticeToDelete.id);
+    setDeleting(false);
+    if (removed) setNoticeToDelete(null);
+  };
   const visible = reports.filter((report) => filter === "all" || report.status === filter);
+  const managedNotices = notices.filter((notice) => {
+    const query = noticeQuery.trim().toLocaleLowerCase("fi-FI");
+    if (!query) return true;
+    return [notice.name, notice.area, notice.user, notice.type]
+      .some((value) => value?.toLocaleLowerCase("fi-FI").includes(query));
+  });
   return (
     <section className="page adminpage">
       <div className="pagehead">
         <span className="kicker">YLLÄPITO</span>
-        <h1>Sisältöraportit</h1>
-        <p>Käsittele käyttäjien lähettämät ilmoitukset huolellisesti ja tasapuolisesti.</p>
+        <h1>{section === "reports" ? "Sisältöraportit" : "Ilmoitusten hallinta"}</h1>
+        <p>{section === "reports"
+          ? "Käsittele käyttäjien lähettämät ilmoitukset huolellisesti ja tasapuolisesti."
+          : "Tarkista palvelussa näkyvät ilmoitukset ja poista sääntöjä rikkova sisältö."}</p>
       </div>
-      <div className="adminfilters">
-        <button className={filter === "pending" ? "active" : ""} onClick={() => setFilter("pending")}>Avoimet</button>
-        <button className={filter === "dismissed" ? "active" : ""} onClick={() => setFilter("dismissed")}>Hylätyt</button>
-        <button className={filter === "actioned" ? "active" : ""} onClick={() => setFilter("actioned")}>Toimenpiteet</button>
-        <button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>Kaikki</button>
-      </div>
-      {error && <div className="autherror">{error}</div>}
-      {loading ? (
-        <div className="empty"><p>Ladataan raportteja…</p></div>
-      ) : visible.length ? (
-        <div className="reportlist">
-          {visible.map((report) => (
-            <article className="adminreport" key={report.id}>
-              <div className="adminreporthead">
-                <span className={`reportstatus ${report.status}`}>{report.status === "pending" ? "Avoin" : report.status === "dismissed" ? "Hylätty" : "Toimenpide tehty"}</span>
-                <time>{new Date(report.created_at).toLocaleString("fi-FI")}</time>
-              </div>
-              <h2>{report.notice_title}</h2>
-              <p><b>Ilmoitettu käyttäjä:</b> {report.reported_user_name}</p>
-              <p><b>Syy:</b> {REPORT_REASONS[report.reason]}</p>
-              <div className="reportdetails">{report.details}</div>
-              {report.status === "pending" && (
-                <div className="adminreportactions">
-                  <button className="secondary" onClick={() => handleStatus(report, "dismissed")}>Ei toimenpiteitä</button>
-                  <button className="deletebtn" disabled={!report.notice_id} onClick={() => setReportToDelete(report)}><Trash2 /> Poista julkaisu</button>
-                </div>
-              )}
-            </article>
-          ))}
+      <label className="adminsectionmenu">
+        Ylläpidon osio
+        <div>
+          <ShieldCheck />
+          <select value={section} onChange={(event) => setSection(event.target.value)}>
+            <option value="reports">Sisältöraportit</option>
+            <option value="notices">Poista ilmoituksia</option>
+          </select>
+          <ChevronDown />
         </div>
+      </label>
+      {error && <div className="autherror">{error}</div>}
+      {section === "reports" ? (
+        <>
+          <div className="adminfilters">
+            <button className={filter === "pending" ? "active" : ""} onClick={() => setFilter("pending")}>Avoimet</button>
+            <button className={filter === "dismissed" ? "active" : ""} onClick={() => setFilter("dismissed")}>Hylätyt</button>
+            <button className={filter === "actioned" ? "active" : ""} onClick={() => setFilter("actioned")}>Toimenpiteet</button>
+            <button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>Kaikki</button>
+          </div>
+          {loading ? (
+            <div className="empty"><p>Ladataan raportteja…</p></div>
+          ) : visible.length ? (
+            <div className="reportlist">
+              {visible.map((report) => (
+                <article className="adminreport" key={report.id}>
+                  <div className="adminreporthead">
+                    <span className={`reportstatus ${report.status}`}>{report.status === "pending" ? "Avoin" : report.status === "dismissed" ? "Hylätty" : "Toimenpide tehty"}</span>
+                    <time>{new Date(report.created_at).toLocaleString("fi-FI")}</time>
+                  </div>
+                  <h2>{report.notice_title}</h2>
+                  <p><b>Ilmoitettu käyttäjä:</b> {report.reported_user_name}</p>
+                  <p><b>Syy:</b> {REPORT_REASONS[report.reason]}</p>
+                  <div className="reportdetails">{report.details}</div>
+                  {report.status === "pending" && (
+                    <div className="adminreportactions">
+                      <button className="secondary" onClick={() => handleStatus(report, "dismissed")}>Ei toimenpiteitä</button>
+                      <button className="deletebtn" disabled={!report.notice_id} onClick={() => setReportToDelete(report)}><Trash2 /> Poista julkaisu</button>
+                    </div>
+                  )}
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="empty"><ShieldCheck /><h3>Ei raportteja</h3><p>Tässä ryhmässä ei ole sisältöraportteja.</p></div>
+          )}
+        </>
       ) : (
-        <div className="empty"><ShieldCheck /><h3>Ei raportteja</h3><p>Tässä ryhmässä ei ole sisältöraportteja.</p></div>
+        <div className="adminnotices">
+          <div className="adminnoticebar">
+            <label className="searchbox">
+              <Search />
+              <input
+                value={noticeQuery}
+                onChange={(event) => setNoticeQuery(event.target.value)}
+                placeholder="Hae otsikolla, alueella tai käyttäjällä"
+              />
+            </label>
+            <b>{managedNotices.length} ilmoitusta</b>
+          </div>
+          {managedNotices.length ? managedNotices.map((notice) => (
+            <article className="adminnotice" key={notice.id}>
+              {notice.preview ? (
+                <img src={notice.preview} alt="" />
+              ) : (
+                <div className="adminnoticeplaceholder"><TypeIcon type={notice.type} /></div>
+              )}
+              <div>
+                <span>{notice.type} · {notice.area}</span>
+                <h2>{notice.name}</h2>
+                <p>Ilmoittaja: <b>{notice.user}</b> · Julkaistu {notice.date}</p>
+              </div>
+              <div className="adminnoticeactions">
+                <button className="secondary" onClick={() => openNotice(notice)}>Avaa ilmoitus</button>
+                <button className="deletebtn" onClick={() => setNoticeToDelete(notice)}><Trash2 /> Poista</button>
+              </div>
+            </article>
+          )) : (
+            <div className="empty"><LayoutList /><h3>Ei ilmoituksia</h3><p>Hakuehdoilla ei löytynyt ilmoituksia.</p></div>
+          )}
+        </div>
       )}
       {reportToDelete && (
         <ConfirmDialog
@@ -2534,6 +2606,17 @@ function AdminPanel({ notify, removeNotice }) {
           busy={deleting}
           onCancel={() => setReportToDelete(null)}
           onConfirm={() => removeReportedNotice(reportToDelete)}
+        />
+      )}
+      {noticeToDelete && (
+        <ConfirmDialog
+          title="Poistetaanko ilmoitus?"
+          message={`Ilmoitus ”${noticeToDelete.name}”, sen kommentit ja siihen liittyvät tiedot poistetaan pysyvästi.`}
+          confirmLabel="Poista ilmoitus"
+          danger
+          busy={deleting}
+          onCancel={() => setNoticeToDelete(null)}
+          onConfirm={removeManagedNotice}
         />
       )}
     </section>

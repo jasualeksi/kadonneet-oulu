@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import "./styles.css";
 import { accountFromUser, supabase, supabaseConfigured } from "./supabase";
+import { validateUsername } from "./usernameModeration";
 
 const AREAS = [
   "Haukipudas",
@@ -262,7 +263,7 @@ function App() {
         )}
         {view === "info" && <Info />}
       </main>
-      <Footer go={go} />
+      <Footer go={go} protectedGo={protectedGo} />
       {login && (
         <Auth
           initialMode={login}
@@ -848,8 +849,9 @@ function Auth({ close, login, initialMode }) {
       return;
     }
     const cleanUsername = username.trim();
-    if (register && (cleanUsername.length < 3 || cleanUsername.length > 30)) {
-      setError("Käyttäjänimessä pitää olla 3–30 merkkiä.");
+    const usernameError = register ? validateUsername(cleanUsername) : "";
+    if (usernameError) {
+      setError(usernameError);
       return;
     }
     setLoading(true);
@@ -1196,8 +1198,8 @@ function AccountSettings({ user, updateUser, notify, logout }) {
     e.preventDefault();
     setError("");
     const cleanUsername = username.trim();
-    if (cleanUsername.length < 3 || cleanUsername.length > 30)
-      return setError("Käyttäjänimessä pitää olla 3–30 merkkiä.");
+    const usernameError = validateUsername(cleanUsername);
+    if (usernameError) return setError(usernameError);
     setSaving(true);
     const { data: existing, error: checkError } = await supabase
       .from("profiles")
@@ -1328,7 +1330,7 @@ function Info() {
     </section>
   );
 }
-function Footer({ go }) {
+function Footer({ go, protectedGo }) {
   return (
     <footer>
       <div className="footer-brand">
@@ -1349,13 +1351,21 @@ function Footer({ go }) {
         <b>Palvelu</b>
         <button onClick={() => go("home")}>Etusivu</button>
         <button onClick={() => go("notices")}>Ilmoitukset</button>
+        <button onClick={() => protectedGo("new")}>Tee ilmoitus</button>
+        <button onClick={() => go("info")}>Ohjeet</button>
+      </div>
+      <div>
+        <b>Käyttäjätili</b>
+        <button onClick={() => protectedGo("mine")}>Omat ilmoitukset</button>
+        <button onClick={() => protectedGo("messages")}>Viestit</button>
+        <button onClick={() => protectedGo("settings")}>Asetukset</button>
       </div>
       <div className="footer-help">
         <b>Hätätilanteessa</b>
         <p>Soita hätänumeroon</p>
         <strong>112</strong>
       </div>
-      <small>© 2026 Kadonneet Oulu</small>
+      <small>© 2026 Kadonneet Oulu · Päivitetty 13.7.2026</small>
     </footer>
   );
 }

@@ -33,15 +33,112 @@ import {
 import "./styles.css";
 
 const AREAS = [
-  "Keskusta",
-  "Tuira",
-  "Raksila",
-  "Kaijonharju",
-  "Linnanmaa",
   "Haukipudas",
+  "Jokikylä",
+  "Martinniemi",
+  "Haukkasuo",
+  "Hiukkavaara",
+  "Kivikkokangas",
+  "Lapinkangas",
+  "Niiles",
+  "Puolukkakangas",
+  "Saarela",
+  "Sanginsuu",
+  "Sankijoki",
+  "Ulkosanki",
+  "Vanha Hiukkavaara",
+  "Jääli",
+  "Välikylä",
+  "Kaakkuri",
+  "Kiviniemi",
+  "Metsokangas",
+  "Perävainio",
+  "Kaijonharju",
+  "Kuivasjärvi",
+  "Liikanen",
+  "Linnanmaa",
+  "Ritaharju",
+  "Kontinkangas",
+  "Oulunsuu",
+  "Peltola",
+  "Värttö",
+  "Höyhtyä",
+  "Karjasilta",
+  "Lintula",
+  "Mäntylä",
+  "Nokela",
+  "Hiironen",
+  "Kaukovainio",
+  "Hollihaka",
+  "Intiö",
+  "Leveri",
+  "Limingantulli",
+  "Myllytulli",
+  "Nuottasaari",
+  "Pokkinen",
+  "Raksila",
+  "Vaara",
+  "Vanhatulli",
+  "Äimärautio",
+  "Kalimenkylä",
+  "Kello",
+  "Alakylä",
+  "Hannus",
+  "Huttukylä",
   "Kiiminki",
+  "Heikinharju",
+  "Hönttämäki",
+  "Korvenkylä",
+  "Korvensuora",
+  "Rusko",
+  "Ruskonselkä",
+  "Saviharju",
+  "Talvikangas",
+  "Hangaskangas",
+  "Heikkilänkangas",
+  "Iinatti",
+  "Juurusoja",
+  "Knuutila",
+  "Madekoski",
+  "Maikkula",
+  "Pikkarala",
+  "Haapalehto",
+  "Hintta",
+  "Kirkkokangas",
+  "Kynsilehto",
+  "Laanila",
+  "Myllyoja",
+  "Parkkisenkangas",
+  "Kylänpuoli",
   "Oulunsalo",
-  "Muu Oulu",
+  "Salonpää",
+  "Isko",
+  "Puolivälinkangas",
+  "Pyykösjärvi",
+  "Takalaanila",
+  "Välivainio",
+  "Herukka",
+  "Pateniemi",
+  "Rajakylä",
+  "Alppila",
+  "Hietasaari",
+  "Koskela",
+  "Koskikeskus",
+  "Pikisaari",
+  "Taskila",
+  "Toppila",
+  "Toppilansaari",
+  "Tuira",
+  "Vihreäsaari",
+  "Pahkala",
+  "Tannila",
+  "Yli-Ii",
+  "Jolos",
+  "Nuoritta",
+  "Vepsä",
+  "Vesala",
+  "Vuotto",
+  "Ylikiiminki",
 ];
 
 function App() {
@@ -98,6 +195,16 @@ function App() {
     setData(data.filter((n) => n.id !== id));
     notify("Ilmoitus poistettiin");
   };
+  const markFound = (id) => {
+    setData(
+      data.map((notice) =>
+        notice.id === id
+          ? { ...notice, found: true, foundAt: Date.now() }
+          : notice,
+      ),
+    );
+    notify("Ilmoitus merkittiin löytyneeksi");
+  };
   return (
     <div className="app">
       <Header
@@ -120,6 +227,7 @@ function App() {
             data={data.filter((n) => n.owner === user?.email)}
             open={setActive}
             remove={remove}
+            markFound={markFound}
             protectedGo={protectedGo}
           />
         )}
@@ -260,8 +368,8 @@ function HomePage({ go, protectedGo, data }) {
             on kadonnut.
           </h1>
           <p>
-            Ilmoita kadonneesta ihmisestä tai eläimestä Oulun alueella. Palvelu
-            on maksuton ja tarkoitettu kaikille.
+            Ilmoita kadonneesta ihmisestä, eläimestä, menopelistä tai tavarasta
+            Oulun alueella. Palvelu on maksuton ja tarkoitettu kaikille.
           </p>
           <div className="hero-actions">
             <button className="primary" onClick={() => protectedGo("new")}>
@@ -351,7 +459,7 @@ function Notices({ data, open }) {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Hae nimellä, alueella tai tuntomerkeillä"
+            placeholder="Hae otsikolla, alueella tai tuntomerkeillä"
           />
         </div>
         <div className="tabs">
@@ -439,7 +547,7 @@ function TypeIcon({ type }) {
   return <UserRound />;
 }
 
-function Card({ n, open, remove }) {
+function Card({ n, open, remove, markFound }) {
   return (
     <article className={`card ${n.found ? "found" : ""}`} onClick={open}>
       <div className="photo">
@@ -480,6 +588,17 @@ function Card({ n, open, remove }) {
           <span>{n.user?.[0]}</span> Ilmoittaja: <b>{n.user}</b>
           <MessageCircle /> {n.comments?.length || 0}
         </div>
+        {markFound && !n.found && (
+          <button
+            className="foundbtn"
+            onClick={(e) => {
+              e.stopPropagation();
+              markFound(n.id);
+            }}
+          >
+            <CheckCircle2 /> Merkitse löytyneeksi
+          </button>
+        )}
         {remove && (
           <button
             className="deletebtn"
@@ -522,7 +641,7 @@ function NewNotice({ onSubmit }) {
         </p>
       </div>
       <form className="noticeform" onSubmit={submit}>
-        <FormBlock no="1" title="Kenestä ilmoitat?">
+        <FormBlock no="1" title="Mitä ilmoitus koskee?">
           <div className="typechoice">
             {["Eläin", "Ihminen", "Menopeli", "Tavara"].map((t) => (
               <button
@@ -545,14 +664,23 @@ function NewNotice({ onSubmit }) {
             ))}
           </div>
         </FormBlock>
-        <FormBlock no="2" title="Tiedot ja tuntomerkit">
+        <FormBlock no="2" title="Ilmoituksen tiedot">
           <div className="fieldgrid">
             <label>
-              Nimi *
+              Ilmoituksen otsikko *
               <input
                 required
                 value={f.name}
                 onChange={(e) => setF({ ...f, name: e.target.value })}
+                placeholder={
+                  f.type === "Ihminen"
+                    ? "Esim. Kadonnut henkilö"
+                    : f.type === "Eläin"
+                      ? "Esim. Ruskea koira kateissa"
+                      : f.type === "Menopeli"
+                        ? "Esim. Musta polkupyörä kateissa"
+                        : "Esim. Avaimet kadonneet"
+                }
               />
             </label>
             <label>
@@ -569,12 +697,13 @@ function NewNotice({ onSubmit }) {
               </select>
             </label>
             <label className="full">
-              Tiedot ja tuntomerkit *
+              Kuvaus ja tuntomerkit *
               <textarea
                 required
                 maxLength="600"
                 value={f.desc}
                 onChange={(e) => setF({ ...f, desc: e.target.value })}
+                placeholder="Kerro milloin ja missä katoaminen tapahtui sekä kaikki tunnistamista helpottavat tiedot."
               />
               <small>{f.desc.length}/600 merkkiä</small>
             </label>
@@ -591,7 +720,7 @@ function NewNotice({ onSubmit }) {
             </label>
           </div>
         </FormBlock>
-        <FormBlock no="3" title="Yhteystiedot">
+        <FormBlock no="3" title="Sinun yhteystietosi">
           <div className="fieldgrid">
             <label>
               Puhelinnumero
@@ -797,7 +926,7 @@ function NoticeDetail({ notice, close, user, requireLogin, update, message }) {
               </div>
             )}
             <div className="contacts">
-              <b>Yhteystiedot</b>
+              <b>Ilmoittajan yhteystiedot</b>
               {notice.phone && (
                 <a href={`tel:${notice.phone}`}>
                   <Phone /> {notice.phone}
@@ -876,7 +1005,7 @@ function NoticeDetail({ notice, close, user, requireLogin, update, message }) {
   );
 }
 
-function Mine({ data, open, remove, protectedGo }) {
+function Mine({ data, open, remove, markFound, protectedGo }) {
   return (
     <section className="page">
       <div className="pagehead">
@@ -892,7 +1021,13 @@ function Mine({ data, open, remove, protectedGo }) {
       {data.length ? (
         <div className="cards listing">
           {data.map((n) => (
-            <Card key={n.id} n={n} open={() => open(n)} remove={remove} />
+            <Card
+              key={n.id}
+              n={n}
+              open={() => open(n)}
+              remove={remove}
+              markFound={markFound}
+            />
           ))}
         </div>
       ) : (
@@ -978,7 +1113,8 @@ function Footer({ go }) {
           </span>
         </div>
         <p>
-          Paikallinen palvelu kadonneiden ihmisten ja eläinten löytämiseksi.
+          Paikallinen palvelu kadonneiden ihmisten, eläinten, menopelien ja
+          tavaroiden löytämiseksi.
         </p>
       </div>
       <div>

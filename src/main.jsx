@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Search,
@@ -29,8 +29,12 @@ import {
   Bike,
   Package,
   Gift,
+  Settings,
+  LogOut,
+  ShieldCheck,
 } from "lucide-react";
 import "./styles.css";
+import { accountFromUser, supabase, supabaseConfigured } from "./supabase";
 
 const AREAS = [
   "Haukipudas",
@@ -151,6 +155,16 @@ function App() {
     [toast, setToast] = useState(""),
     [messages, setMessages] = useState([]),
     [active, setActive] = useState(null);
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(accountFromUser(session?.user));
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(accountFromUser(session?.user));
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
   const go = (v) => {
     setView(v);
     setMenu(false);
@@ -161,12 +175,13 @@ function App() {
     setTimeout(() => setToast(""), 2800);
   };
   const protectedGo = (v) => {
-    if (!user) {
+    if (!user || !user.emailConfirmed) {
       setPending(v);
       setLogin("register");
     } else go(v);
   };
-  const auth = (u) => {
+  const auth = (authUser) => {
+    const u = accountFromUser(authUser);
     setUser(u);
     setLogin(false);
     notify(`Tervetuloa, ${u.username}`);
@@ -232,6 +247,19 @@ function App() {
           />
         )}
         {view === "messages" && <Messages messages={messages} user={user} />}
+        {view === "settings" && (
+          <AccountSettings
+            user={user}
+            updateUser={setUser}
+            notify={notify}
+            logout={async () => {
+              await supabase?.auth.signOut();
+              setUser(null);
+              go("home");
+              notify("Kirjauduit ulos");
+            }}
+          />
+        )}
         {view === "info" && <Info />}
       </main>
       <Footer go={go} />
@@ -302,6 +330,9 @@ function Header({ user, view, go, protectedGo, setLogin, menu, setMenu }) {
           <>
             <button onClick={() => go("mine")}>Omat ilmoitukset</button>
             <button onClick={() => go("messages")}>Viestit</button>
+            <button onClick={() => go("settings")}>
+              <Settings /> Asetukset
+            </button>
           </>
         )}
         {!user && (
@@ -320,7 +351,7 @@ function Header({ user, view, go, protectedGo, setLogin, menu, setMenu }) {
       </nav>
       <div className="header-actions">
         {user ? (
-          <button className="login" onClick={() => go("mine")}>
+          <button className="login" onClick={() => go("settings")}>
             <UserRound size={18} />
             {user.username}
           </button>
@@ -369,7 +400,7 @@ function HomePage({ go, protectedGo, data }) {
           </h1>
           <p>
             Ilmoita kadonneesta ihmisestä, eläimestä, menopelistä tai tavarasta
-            Oulun alueella. Palvelu on maksuton ja tarkoitettu kaikille.
+            Oulun alueella. Palvelu on maksuton ja tarkoitettu kaikille oululaisille.
           </p>
           <div className="hero-actions">
             <button className="primary" onClick={() => protectedGo("new")}>
@@ -800,17 +831,66 @@ function Auth({ close, login, initialMode }) {
   const [register, setRegister] = useState(initialMode === "register"),
     [email, setEmail] = useState(""),
     [password, setPassword] = useState(""),
-    [username, setUsername] = useState("");
-  const submit = (e) => {
+    [passwordAgain, setPasswordAgain] = useState(""),
+    [username, setUsername] = useState(""),
+    [error, setError] = useState(""),
+    [loading, setLoading] = useState(false),
+    [confirmationSent, setConfirmationSent] = useState(false);
+  const submit = async (e) => {
     e.preventDefault();
-    login({
-      email,
-      username: register
-        ? username
-        : localStorage.getItem("ko_username") || email.split("@")[0],
-    });
-    if (register) localStorage.setItem("ko_username", username);
+    setError("");
+    if (!supabaseConfigured) {
+      setError("Tunnistautumispalvelua ei ole vielä yhdistetty sivustoon.");
+      return;
+    }
+    if (register && password !== passwordAgain) {
+      setError("Salasanat eivät täsmää.");
+      return;
+    }
+    setLoading(true);
+    if (register) {
+      const { data, error: authError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { username },
+          emailRedirectTo: window.location.origin,
+        },
+      });
+      setLoading(false);
+      if (authError) return setError(authError.message);
+      if (!data.session) return setConfirmationSent(true);
+      login(data.user);
+    } else {
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      setLoading(false);
+      if (authError) {
+        setError(
+          authError.message.toLowerCase().includes("email not confirmed")
+            ? "Vahvista sähköpostiosoitteesi ennen kirjautumista."
+            : "Sähköpostiosoite tai salasana on väärin.",
+        );
+        return;
+      }
+      login(data.user);
+    }
   };
+  if (confirmationSent) {
+    return (
+      <div className="modalback">
+        <div className="modal confirmbox">
+          <button type="button" className="close" onClick={close}><X /></button>
+          <ShieldCheck />
+          <h2>Vahvista sähköpostiosoitteesi</h2>
+          <p>Lähetimme vahvistuslinkin osoitteeseen <b>{email}</b>. Avaa linkki ennen kirjautumista ja ilmoituksen tekemistä.</p>
+          <button className="primary wide" onClick={() => { setConfirmationSent(false); setRegister(false); }}>Siirry kirjautumiseen</button>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="modalback">
       <form className="modal" onSubmit={submit}>
@@ -864,8 +944,24 @@ function Auth({ close, login, initialMode }) {
             />
           </div>
         </label>
-        <button className="primary wide">
-          {register ? "Luo käyttäjätili ja jatka" : "Kirjaudu sisään"}
+        {register && (
+          <label>
+            Salasana uudelleen *
+            <div className="inputicon">
+              <Lock />
+              <input
+                required
+                minLength="8"
+                type="password"
+                value={passwordAgain}
+                onChange={(e) => setPasswordAgain(e.target.value)}
+              />
+            </div>
+          </label>
+        )}
+        {error && <div className="autherror">{error}</div>}
+        <button className="primary wide" disabled={loading}>
+          {loading ? "Odota hetki…" : register ? "Luo käyttäjätili" : "Kirjaudu sisään"}
         </button>
         <p className="switch">
           {register
@@ -1067,6 +1163,89 @@ function Messages({ messages }) {
     </section>
   );
 }
+
+function AccountSettings({ user, updateUser, notify, logout }) {
+  const [username, setUsername] = useState(user?.username || ""),
+    [oldPassword, setOldPassword] = useState(""),
+    [newPassword, setNewPassword] = useState(""),
+    [confirmPassword, setConfirmPassword] = useState(""),
+    [error, setError] = useState(""),
+    [saving, setSaving] = useState(false);
+
+  const saveUsername = async (e) => {
+    e.preventDefault();
+    setError("");
+    setSaving(true);
+    const { data, error: updateError } = await supabase.auth.updateUser({
+      data: { username },
+    });
+    setSaving(false);
+    if (updateError) return setError(updateError.message);
+    updateUser(accountFromUser(data.user));
+    notify("Käyttäjänimi päivitettiin");
+  };
+
+  const changePassword = async (e) => {
+    e.preventDefault();
+    setError("");
+    if (newPassword.length < 8)
+      return setError("Uudessa salasanassa pitää olla vähintään 8 merkkiä.");
+    if (newPassword !== confirmPassword)
+      return setError("Uudet salasanat eivät täsmää.");
+    setSaving(true);
+    const { error: loginError } = await supabase.auth.signInWithPassword({
+      email: user.email,
+      password: oldPassword,
+    });
+    if (loginError) {
+      setSaving(false);
+      return setError("Vanha salasana on väärin.");
+    }
+    const { error: passwordError } = await supabase.auth.updateUser({
+      password: newPassword,
+    });
+    setSaving(false);
+    if (passwordError) return setError(passwordError.message);
+    setOldPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    notify("Salasana vaihdettiin");
+  };
+
+  return (
+    <section className="page narrow accountpage">
+      <div className="pagehead">
+        <span className="kicker">KÄYTTÄJÄTILI</span>
+        <h1>Asetukset</h1>
+        <p>Hallinnoi käyttäjätilisi tietoja ja salasanaa.</p>
+      </div>
+      <div className="accountgrid">
+        <div className="accountcard">
+          <h2>Tilitiedot</h2>
+          <div className="accountrow"><span>Sähköpostiosoite</span><b>{user.email}</b></div>
+          <div className="accountrow"><span>Sähköpostin vahvistus</span><b className="verified"><CheckCircle2 /> Vahvistettu</b></div>
+          <form onSubmit={saveUsername}>
+            <label>Käyttäjänimi<input required value={username} onChange={(e) => setUsername(e.target.value)} /></label>
+            <button className="secondary" disabled={saving}>Tallenna käyttäjänimi</button>
+          </form>
+        </div>
+        <div className="accountcard">
+          <h2>Vaihda salasana</h2>
+          <p className="muted">Nykyistä salasanaa ei voida näyttää turvallisuussyistä.</p>
+          <form onSubmit={changePassword}>
+            <label>Vanha salasana<input required type="password" value={oldPassword} onChange={(e) => setOldPassword(e.target.value)} /></label>
+            <label>Uusi salasana<input required minLength="8" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} /></label>
+            <label>Uusi salasana uudelleen<input required minLength="8" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} /></label>
+            <button className="primary" disabled={saving}>Vaihda salasana</button>
+          </form>
+        </div>
+      </div>
+      {error && <div className="autherror settings-error">{error}</div>}
+      <button className="logoutbtn" onClick={logout}><LogOut /> Kirjaudu ulos</button>
+    </section>
+  );
+}
+
 function Info() {
   return (
     <section className="page narrow prose">

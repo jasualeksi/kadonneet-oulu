@@ -347,12 +347,14 @@ as $$
 declare
   actor_id uuid;
   submission_count integer;
+  new_row jsonb;
 begin
+  new_row := to_jsonb(new);
   actor_id := case tg_table_name
-    when 'notices' then new.owner_id
-    when 'comments' then new.user_id
-    when 'messages' then new.sender_id
-    when 'reports' then new.reporter_id
+    when 'notices' then (new_row ->> 'owner_id')::uuid
+    when 'comments' then (new_row ->> 'user_id')::uuid
+    when 'messages' then (new_row ->> 'sender_id')::uuid
+    when 'reports' then (new_row ->> 'reporter_id')::uuid
     else null
   end;
 
@@ -378,8 +380,8 @@ begin
     if exists (
       select 1 from public.notices
       where owner_id = actor_id
-        and lower(trim(title)) = lower(trim(new.title))
-        and lower(trim(description)) = lower(trim(new.description))
+        and lower(trim(title)) = lower(trim(new_row ->> 'title'))
+        and lower(trim(description)) = lower(trim(new_row ->> 'description'))
         and created_at > now() - interval '10 minutes'
     ) then
       raise exception 'Saman ilmoituksen voi julkaista uudelleen aikaisintaan 10 minuutin kuluttua.' using errcode = 'P0001';
@@ -410,7 +412,7 @@ begin
     end if;
     select count(*) into submission_count from public.messages
       where sender_id = actor_id
-        and recipient_id = new.recipient_id
+        and recipient_id = (new_row ->> 'recipient_id')::uuid
         and created_at > now() - interval '1 hour';
     if submission_count >= 40 then
       raise exception 'Voit lähettää samalle käyttäjälle enintään 40 viestiä tunnissa.' using errcode = 'P0001';

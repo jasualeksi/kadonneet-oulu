@@ -564,8 +564,8 @@ function HomePage({ go, protectedGo, data, open }) {
         <section className="latest homenotices">
           <div className="homecarouselhead">
             <div>
-              <span className="kicker">UUSIMMAT ILMOITUKSET</span>
-              <h2>Ajankohtaiset ilmoitukset</h2>
+              <span className="kicker">KADONNEET OULUN ALUEELLA</span>
+              <h2>Uusimmat ilmoitukset</h2>
               <p>Selaa uusimpia ilmoituksia tai avaa ilmoitus nähdäksesi lisätiedot.</p>
             </div>
             <button className="text-button" onClick={() => go("notices")}>

@@ -40,6 +40,9 @@ import {
   ArrowLeft,
   Pencil,
   Share2,
+  Flag,
+  Bookmark,
+  BookmarkCheck,
 } from "lucide-react";
 import "./styles.css";
 import { accountFromUser, supabase, supabaseConfigured } from "./supabase";
@@ -53,6 +56,13 @@ import {
   fetchNotices,
   removeNotice,
   setNoticeFound,
+  fetchSavedNoticeIds,
+  saveNotice,
+  unsaveNotice,
+  createReport,
+  checkAdminRole,
+  fetchReports,
+  setReportStatus,
 } from "./dataService";
 
 const AREAS = [
@@ -171,7 +181,18 @@ const VIEW_PATHS = {
   mine: "/omat-ilmoitukset",
   messages: "/viestit",
   settings: "/asetukset",
+  saved: "/tallennetut",
+  admin: "/yllapito",
   info: "/ohjeet",
+};
+
+const REPORT_REASONS = {
+  spam: "Roskaposti tai huijaus",
+  harassment: "Loukkaava, uhkaava tai vihamielinen sisältö",
+  false_information: "Virheelliset tai harhaanjohtavat tiedot",
+  privacy: "Yksityisyys tai henkilötiedot",
+  inappropriate_image: "Sopimaton kuva",
+  other: "Muu syy",
 };
 
 function routeFromPath(pathname) {
@@ -197,7 +218,10 @@ function App() {
     [messages, setMessages] = useState([]),
     [active, setActive] = useState(null),
     [editingNotice, setEditingNotice] = useState(null),
-    [publicProfile, setPublicProfile] = useState(null);
+    [publicProfile, setPublicProfile] = useState(null),
+    [savedIds, setSavedIds] = useState([]),
+    [isAdmin, setIsAdmin] = useState(false),
+    [reportTarget, setReportTarget] = useState(null);
   useEffect(() => {
     if (!supabase) return;
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -235,6 +259,15 @@ function App() {
       current = false;
       clearInterval(refresh);
     };
+  }, [user?.id]);
+  useEffect(() => {
+    if (!user?.id) {
+      setSavedIds([]);
+      setIsAdmin(false);
+      return;
+    }
+    fetchSavedNoticeIds(user.id).then(setSavedIds).catch(() => setSavedIds([]));
+    checkAdminRole(user.id).then(setIsAdmin).catch(() => setIsAdmin(false));
   }, [user?.id]);
   const go = (v, customPath = VIEW_PATHS[v] || "/", replace = false) => {
     window.history[replace ? "replaceState" : "pushState"]({}, "", customPath);
@@ -294,6 +327,8 @@ function App() {
       mine: "Omat ilmoitukset – Kadonneet Oulu",
       messages: "Viestit – Kadonneet Oulu",
       settings: "Asetukset – Kadonneet Oulu",
+      saved: "Tallennetut ilmoitukset – Kadonneet Oulu",
+      admin: "Ylläpito – Kadonneet Oulu",
       profile: "Käyttäjäprofiili – Kadonneet Oulu",
       info: "Ohjeet – Kadonneet Oulu",
     };
@@ -354,8 +389,10 @@ function App() {
       await removeNotice(id);
       setData((current) => current.filter((n) => n.id !== id));
       notify("Ilmoitus poistettiin");
+      return true;
     } catch {
       notify("Ilmoitusta ei voitu poistaa");
+      return false;
     }
   };
   const markFound = async (id) => {
@@ -393,6 +430,30 @@ function App() {
     setPublicProfile({ id, username });
     go("profile", `/kayttajat/${id}`);
   };
+  const toggleSavedNotice = async (notice) => {
+    if (!user) {
+      setLogin("login");
+      return;
+    }
+    const isSaved = savedIds.includes(notice.id);
+    try {
+      if (isSaved) {
+        await unsaveNotice(user.id, notice.id);
+        setSavedIds((current) => current.filter((id) => id !== notice.id));
+        notify("Ilmoitus poistettiin tallennetuista");
+      } else {
+        await saveNotice(user.id, notice.id);
+        setSavedIds((current) => [...current, notice.id]);
+        notify("Ilmoitus tallennettiin");
+      }
+    } catch {
+      notify("Tallennusta ei voitu päivittää");
+    }
+  };
+  const startReport = (notice) => {
+    setReportTarget(notice);
+    if (!user) setLogin("login");
+  };
   return (
     <div className="app">
       <Header
@@ -402,14 +463,15 @@ function App() {
         protectedGo={protectedGo}
         setLogin={setLogin}
         logout={logout}
+        isAdmin={isAdmin}
         menu={menu}
         setMenu={setMenu}
       />
       <main>
         {view === "home" && (
-          <HomePage go={go} protectedGo={protectedGo} data={data} open={openNotice} />
+          <HomePage go={go} protectedGo={protectedGo} data={data} open={openNotice} report={startReport} savedIds={savedIds} toggleSaved={toggleSavedNotice} />
         )}
-        {view === "notices" && <Notices data={data} open={openNotice} />}
+        {view === "notices" && <Notices data={data} open={openNotice} report={startReport} savedIds={savedIds} toggleSaved={toggleSavedNotice} />}
         {view === "new" && <NewNotice onSubmit={add} />}
         {view === "edit" && editingNotice && (
           <NewNotice
@@ -429,6 +491,9 @@ function App() {
             remove={remove}
             markFound={markFound}
             edit={editNotice}
+            report={startReport}
+            savedIds={savedIds}
+            toggleSaved={toggleSavedNotice}
             protectedGo={protectedGo}
           />
         )}
@@ -443,11 +508,26 @@ function App() {
             logout={logout}
           />
         )}
+        {view === "saved" && (
+          <SavedNotices
+            notices={data.filter((notice) => savedIds.includes(notice.id))}
+            open={openNotice}
+            report={startReport}
+            savedIds={savedIds}
+            toggleSaved={toggleSavedNotice}
+          />
+        )}
+        {view === "admin" && isAdmin && (
+          <AdminPanel notify={notify} removeNotice={remove} />
+        )}
         {view === "profile" && publicProfile && (
           <PublicProfile
             selected={publicProfile}
             notices={data.filter((notice) => notice.owner === publicProfile.id)}
             openNotice={openNotice}
+            report={startReport}
+            savedIds={savedIds}
+            toggleSaved={toggleSavedNotice}
           />
         )}
         {view === "info" && <Info />}
@@ -459,6 +539,7 @@ function App() {
           close={() => {
             setLogin(false);
             setPending(null);
+            setReportTarget(null);
           }}
           login={auth}
         />
@@ -476,6 +557,20 @@ function App() {
           addComment={addNoticeComment}
           message={sendPrivateMessage}
           openProfile={openProfile}
+          report={() => startReport(active)}
+          saved={savedIds.includes(active.id)}
+          toggleSaved={() => toggleSavedNotice(active)}
+        />
+      )}
+      {reportTarget && user && (
+        <ReportModal
+          notice={reportTarget}
+          close={() => setReportTarget(null)}
+          submit={async (reason, details) => {
+            await createReport(reportTarget, reason, details, user.id);
+            setReportTarget(null);
+            notify("Ilmoitus lähetettiin ylläpidolle");
+          }}
         />
       )}
       {toast && (
@@ -488,7 +583,7 @@ function App() {
   );
 }
 
-function Header({ user, view, go, protectedGo, setLogin, logout, menu, setMenu }) {
+function Header({ user, view, go, protectedGo, setLogin, logout, isAdmin, menu, setMenu }) {
   const [accountMenu, setAccountMenu] = useState(false);
   const accountMenuRef = useRef(null);
 
@@ -534,6 +629,8 @@ function Header({ user, view, go, protectedGo, setLogin, logout, menu, setMenu }
           <>
             <button onClick={() => go("mine")}><ClipboardList /> Omat ilmoitukset</button>
             <button onClick={() => go("messages")}><MessageCircle /> Viestit</button>
+            <button onClick={() => go("saved")}><Bookmark /> Tallennetut</button>
+            {isAdmin && <button onClick={() => go("admin")}><ShieldCheck /> Ylläpito</button>}
             <button className="mobile-account" onClick={() => go("settings")}>
               <Settings /> Asetukset
             </button>
@@ -567,6 +664,8 @@ function Header({ user, view, go, protectedGo, setLogin, logout, menu, setMenu }
             {accountMenu && (
               <div className="account-dropdown">
                 <button onClick={() => { setAccountMenu(false); go("mine"); }}><ClipboardList /> Omat ilmoitukset</button>
+                <button onClick={() => { setAccountMenu(false); go("saved"); }}><Bookmark /> Tallennetut</button>
+                {isAdmin && <button onClick={() => { setAccountMenu(false); go("admin"); }}><ShieldCheck /> Ylläpito</button>}
                 <button onClick={() => { setAccountMenu(false); go("settings"); }}><Settings /> Asetukset</button>
                 <button className="logout-option" onClick={() => { setAccountMenu(false); logout(); }}><LogOut /> Kirjaudu ulos</button>
               </div>
@@ -597,7 +696,7 @@ function Header({ user, view, go, protectedGo, setLogin, logout, menu, setMenu }
   );
 }
 
-function HomePage({ go, protectedGo, data, open }) {
+function HomePage({ go, protectedGo, data, open, report, savedIds, toggleSaved }) {
   const count = data.length;
   const rotatingNotices = useMemo(
     () => [...data].sort((a, b) => b.created - a.created).slice(0, 8),
@@ -710,7 +809,7 @@ function HomePage({ go, protectedGo, data, open }) {
               <ChevronLeft />
             </button>
             <div className="carouselstage" key={rotatingNotices[slide]?.id}>
-              <Card n={rotatingNotices[slide]} open={() => open(rotatingNotices[slide])} />
+              <Card n={rotatingNotices[slide]} open={() => open(rotatingNotices[slide])} report={report} saved={savedIds.includes(rotatingNotices[slide].id)} toggleSaved={toggleSaved} />
             </div>
             <button
               className="carouselarrow next"
@@ -748,7 +847,7 @@ function HomePage({ go, protectedGo, data, open }) {
   );
 }
 
-function Notices({ data, open }) {
+function Notices({ data, open, report, savedIds, toggleSaved }) {
   const [category, setCategory] = useState("Kaikki"),
     [query, setQuery] = useState(""),
     [areas, setAreas] = useState([]),
@@ -843,7 +942,7 @@ function Notices({ data, open }) {
       {filtered.length ? (
         <div className="cards listing">
           {filtered.map((n) => (
-            <Card n={n} key={n.id} open={() => open(n)} />
+            <Card n={n} key={n.id} open={() => open(n)} report={report} saved={savedIds.includes(n.id)} toggleSaved={toggleSaved} />
           ))}
         </div>
       ) : (
@@ -873,7 +972,7 @@ function TypeIcon({ type }) {
   return <UserRound />;
 }
 
-function Card({ n, open, remove, markFound, edit }) {
+function Card({ n, open, remove, markFound, edit, report, saved, toggleSaved }) {
   return (
     <article className={`card ${n.found ? "found" : ""}`} onClick={open}>
       <div className="photo">
@@ -912,6 +1011,26 @@ function Card({ n, open, remove, markFound, edit }) {
         <div className="author">
           <span>{n.user?.[0]}</span> Ilmoittaja: <b>{n.user}</b>
           <MessageCircle /> {n.comments?.length || 0}
+        </div>
+        <div className="cardtools">
+          <button
+            className={saved ? "saved" : ""}
+            onClick={(event) => {
+              event.stopPropagation();
+              toggleSaved?.(n);
+            }}
+          >
+            {saved ? <BookmarkCheck /> : <Bookmark />} {saved ? "Tallennettu" : "Tallenna"}
+          </button>
+          <button
+            className="reporttool"
+            onClick={(event) => {
+              event.stopPropagation();
+              report?.(n);
+            }}
+          >
+            <Flag /> Ilmoita
+          </button>
         </div>
         {markFound && !n.found && (
           <button
@@ -1343,7 +1462,7 @@ function relativeCommentTime(created, now = Date.now()) {
   return `${days} ${days === 1 ? "päivä" : "päivää"} sitten`;
 }
 
-function NoticeDetail({ notice, close, user, requireLogin, addComment, message, openProfile }) {
+function NoticeDetail({ notice, close, user, requireLogin, addComment, message, openProfile, report, saved, toggleSaved }) {
   const [commentText, setCommentText] = useState(""),
     [imageFile, setImageFile] = useState(null),
     [dmText, setDmText] = useState(""),
@@ -1435,9 +1554,17 @@ function NoticeDetail({ notice, close, user, requireLogin, addComment, message, 
                 <Send /> Lähetä yksityisviesti
               </button>
             )}
-            <button className="secondary sharebtn" onClick={shareNotice}>
-              <Share2 /> {shared ? "Linkki kopioitu" : "Jaa ilmoitus"}
-            </button>
+            <div className="detailtools">
+              <button className={`secondary ${saved ? "saved" : ""}`} onClick={toggleSaved}>
+                {saved ? <BookmarkCheck /> : <Bookmark />} {saved ? "Tallennettu" : "Tallenna"}
+              </button>
+              <button className="secondary sharebtn" onClick={shareNotice}>
+                <Share2 /> {shared ? "Linkki kopioitu" : "Jaa ilmoitus"}
+              </button>
+              <button className="secondary reportbtn" onClick={report}>
+                <Flag /> Ilmoita asiaton sisältö
+              </button>
+            </div>
           </div>
         </div>
         {dm && (
@@ -1530,7 +1657,7 @@ function NoticeDetail({ notice, close, user, requireLogin, addComment, message, 
   );
 }
 
-function PublicProfile({ selected, notices, openNotice }) {
+function PublicProfile({ selected, notices, openNotice, report, savedIds, toggleSaved }) {
   const [profile, setProfile] = useState(selected);
 
   useEffect(() => {
@@ -1574,6 +1701,9 @@ function PublicProfile({ selected, notices, openNotice }) {
               key={notice.id}
               n={notice}
               open={() => openNotice(notice)}
+              report={report}
+              saved={savedIds.includes(notice.id)}
+              toggleSaved={toggleSaved}
             />
           ))}
         </div>
@@ -1588,7 +1718,7 @@ function PublicProfile({ selected, notices, openNotice }) {
   );
 }
 
-function Mine({ data, open, remove, markFound, edit, protectedGo }) {
+function Mine({ data, open, remove, markFound, edit, report, savedIds, toggleSaved, protectedGo }) {
   return (
     <section className="page">
       <div className="pagehead">
@@ -1611,6 +1741,9 @@ function Mine({ data, open, remove, markFound, edit, protectedGo }) {
               remove={remove}
               markFound={markFound}
               edit={edit}
+              report={report}
+              saved={savedIds.includes(n.id)}
+              toggleSaved={toggleSaved}
             />
           ))}
         </div>
@@ -1786,6 +1919,173 @@ function Messages({ messages, send }) {
           <h3>Ei viestejä</h3>
           <p>Lähettämäsi ja vastaanottamasi viestit näkyvät täällä.</p>
         </div>
+      )}
+    </section>
+  );
+}
+
+function SavedNotices({ notices, open, report, savedIds, toggleSaved }) {
+  return (
+    <section className="page">
+      <div className="pagehead">
+        <span className="kicker">OMA KOKOELMA</span>
+        <h1>Tallennetut ilmoitukset</h1>
+        <p>Tallennukset näkyvät vain sinulle. Voit poistaa tallennuksen milloin tahansa.</p>
+      </div>
+      {notices.length ? (
+        <div className="cards listing">
+          {notices.map((notice) => (
+            <Card
+              key={notice.id}
+              n={notice}
+              open={() => open(notice)}
+              report={report}
+              saved={savedIds.includes(notice.id)}
+              toggleSaved={toggleSaved}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="empty">
+          <Bookmark />
+          <h3>Ei tallennettuja ilmoituksia</h3>
+          <p>Tallentamasi ilmoitukset löytyvät myöhemmin helposti tältä sivulta.</p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ReportModal({ notice, close, submit }) {
+  const [reason, setReason] = useState(""),
+    [details, setDetails] = useState(""),
+    [sending, setSending] = useState(false),
+    [error, setError] = useState("");
+  const sendReport = async (event) => {
+    event.preventDefault();
+    if (!reason || details.trim().length < 10) return;
+    setSending(true);
+    setError("");
+    try {
+      await submit(reason, details);
+    } catch (submitError) {
+      setError(
+        submitError.code === "23505"
+          ? "Olet jo ilmoittanut tämän julkaisun ylläpidolle."
+          : "Ilmoitusta ei voitu lähettää. Yritä myöhemmin uudelleen.",
+      );
+      setSending(false);
+    }
+  };
+  return (
+    <div className="modalback reportback">
+      <form className="modal reportmodal" onSubmit={sendReport}>
+        <button type="button" className="close" onClick={close}><X /></button>
+        <div className="reporticon"><Flag /></div>
+        <h2>Ilmoita asiaton sisältö</h2>
+        <p>Ilmoitus koskee julkaisua <b>{notice.name}</b>. Ylläpito tarkistaa ilmoituksen.</p>
+        <label>
+          Ilmoituksen syy
+          <select required value={reason} onChange={(event) => setReason(event.target.value)}>
+            <option value="">Valitse syy</option>
+            {Object.entries(REPORT_REASONS).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Kuvaile ongelma
+          <textarea
+            required
+            minLength={10}
+            maxLength={1000}
+            value={details}
+            onChange={(event) => setDetails(event.target.value)}
+            placeholder="Kerro mahdollisimman selkeästi, mikä julkaisussa on asiatonta tai virheellistä."
+          />
+          <small>{details.length}/1000 merkkiä</small>
+        </label>
+        {error && <div className="autherror">{error}</div>}
+        <button className="primary wide" disabled={sending || !reason || details.trim().length < 10}>
+          <Flag /> {sending ? "Lähetetään…" : "Lähetä ilmoitus ylläpidolle"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function AdminPanel({ notify, removeNotice }) {
+  const [reports, setReports] = useState([]),
+    [loading, setLoading] = useState(true),
+    [filter, setFilter] = useState("pending"),
+    [error, setError] = useState("");
+
+  const loadReports = () => {
+    setLoading(true);
+    fetchReports()
+      .then(setReports)
+      .catch(() => setError("Raportteja ei voitu ladata."))
+      .finally(() => setLoading(false));
+  };
+  useEffect(loadReports, []);
+
+  const handleStatus = async (report, status) => {
+    try {
+      await setReportStatus(report.id, status);
+      setReports((current) =>
+        current.map((item) => (item.id === report.id ? { ...item, status } : item)),
+      );
+      notify(status === "dismissed" ? "Raportti hylättiin" : "Raportti käsiteltiin");
+    } catch {
+      setError("Raportin tilaa ei voitu päivittää.");
+    }
+  };
+  const removeReportedNotice = async (report) => {
+    if (!report.notice_id) return;
+    if (!window.confirm(`Poistetaanko ilmoitus ”${report.notice_title}” pysyvästi?`)) return;
+    const removed = await removeNotice(report.notice_id);
+    if (removed) await handleStatus(report, "actioned");
+  };
+  const visible = reports.filter((report) => filter === "all" || report.status === filter);
+  return (
+    <section className="page adminpage">
+      <div className="pagehead">
+        <span className="kicker">YLLÄPITO</span>
+        <h1>Sisältöraportit</h1>
+        <p>Käsittele käyttäjien lähettämät ilmoitukset huolellisesti ja tasapuolisesti.</p>
+      </div>
+      <div className="adminfilters">
+        <button className={filter === "pending" ? "active" : ""} onClick={() => setFilter("pending")}>Avoimet</button>
+        <button className={filter === "dismissed" ? "active" : ""} onClick={() => setFilter("dismissed")}>Hylätyt</button>
+        <button className={filter === "actioned" ? "active" : ""} onClick={() => setFilter("actioned")}>Toimenpiteet</button>
+        <button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>Kaikki</button>
+      </div>
+      {error && <div className="autherror">{error}</div>}
+      {loading ? (
+        <div className="empty"><p>Ladataan raportteja…</p></div>
+      ) : visible.length ? (
+        <div className="reportlist">
+          {visible.map((report) => (
+            <article className="adminreport" key={report.id}>
+              <div className="adminreporthead">
+                <span className={`reportstatus ${report.status}`}>{report.status === "pending" ? "Avoin" : report.status === "dismissed" ? "Hylätty" : "Toimenpide tehty"}</span>
+                <time>{new Date(report.created_at).toLocaleString("fi-FI")}</time>
+              </div>
+              <h2>{report.notice_title}</h2>
+              <p><b>Ilmoitettu käyttäjä:</b> {report.reported_user_name}</p>
+              <p><b>Syy:</b> {REPORT_REASONS[report.reason]}</p>
+              <div className="reportdetails">{report.details}</div>
+              {report.status === "pending" && (
+                <div className="adminreportactions">
+                  <button className="secondary" onClick={() => handleStatus(report, "dismissed")}>Ei toimenpiteitä</button>
+                  <button className="deletebtn" disabled={!report.notice_id} onClick={() => removeReportedNotice(report)}><Trash2 /> Poista julkaisu</button>
+                </div>
+              )}
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="empty"><ShieldCheck /><h3>Ei raportteja</h3><p>Tässä ryhmässä ei ole sisältöraportteja.</p></div>
       )}
     </section>
   );

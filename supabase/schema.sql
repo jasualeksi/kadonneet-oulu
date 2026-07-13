@@ -200,6 +200,92 @@ drop policy if exists "Käyttäjä voi lähettää viestin" on public.messages;
 create policy "Käyttäjä voi lähettää viestin" on public.messages
   for insert with check (auth.uid() = sender_id);
 
+create schema if not exists private;
+revoke all on schema private from anon;
+
+create table if not exists public.user_roles (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  role text not null check (role in ('admin')),
+  created_at timestamptz not null default now()
+);
+alter table public.user_roles enable row level security;
+
+create or replace function private.is_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1 from public.user_roles
+    where user_id = (select auth.uid()) and role = 'admin'
+  );
+$$;
+grant usage on schema private to authenticated;
+revoke all on function private.is_admin() from public;
+grant execute on function private.is_admin() to authenticated;
+
+drop policy if exists "Käyttäjä näkee oman ylläpitoroolinsa" on public.user_roles;
+create policy "Käyttäjä näkee oman ylläpitoroolinsa"
+  on public.user_roles for select to authenticated
+  using (user_id = (select auth.uid()) or (select private.is_admin()));
+
+create table if not exists public.reports (
+  id uuid primary key default gen_random_uuid(),
+  reporter_id uuid not null references auth.users(id) on delete cascade,
+  notice_id uuid references public.notices(id) on delete set null,
+  reported_user_id uuid not null references auth.users(id) on delete cascade,
+  reported_user_name text not null,
+  notice_title text not null,
+  reason text not null check (reason in (
+    'spam', 'harassment', 'false_information', 'privacy', 'inappropriate_image', 'other'
+  )),
+  details text not null check (char_length(details) between 10 and 1000),
+  status text not null default 'pending' check (status in ('pending', 'dismissed', 'actioned')),
+  created_at timestamptz not null default now(),
+  handled_at timestamptz
+);
+create index if not exists reports_status_created_idx on public.reports (status, created_at desc);
+create unique index if not exists reports_one_pending_per_user_notice
+  on public.reports (reporter_id, notice_id) where status = 'pending';
+alter table public.reports enable row level security;
+drop policy if exists "Kirjautunut käyttäjä voi ilmoittaa sisällöstä" on public.reports;
+create policy "Kirjautunut käyttäjä voi ilmoittaa sisällöstä"
+  on public.reports for insert to authenticated
+  with check (reporter_id = (select auth.uid()) and notice_id is not null);
+drop policy if exists "Ylläpito näkee ilmoitukset asiattomasta sisällöstä" on public.reports;
+create policy "Ylläpito näkee ilmoitukset asiattomasta sisällöstä"
+  on public.reports for select to authenticated
+  using ((select private.is_admin()));
+drop policy if exists "Ylläpito käsittelee ilmoitukset asiattomasta sisällöstä" on public.reports;
+create policy "Ylläpito käsittelee ilmoitukset asiattomasta sisällöstä"
+  on public.reports for update to authenticated
+  using ((select private.is_admin())) with check ((select private.is_admin()));
+
+drop policy if exists "Ylläpito voi poistaa ilmoituksia" on public.notices;
+create policy "Ylläpito voi poistaa ilmoituksia" on public.notices
+  for delete to authenticated using ((select private.is_admin()));
+
+create table if not exists public.saved_notices (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  notice_id uuid not null references public.notices(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (user_id, notice_id)
+);
+create index if not exists saved_notices_user_created_idx
+  on public.saved_notices (user_id, created_at desc);
+alter table public.saved_notices enable row level security;
+drop policy if exists "Käyttäjä näkee omat tallennuksensa" on public.saved_notices;
+create policy "Käyttäjä näkee omat tallennuksensa" on public.saved_notices
+  for select to authenticated using (user_id = (select auth.uid()));
+drop policy if exists "Käyttäjä voi tallentaa ilmoituksen" on public.saved_notices;
+create policy "Käyttäjä voi tallentaa ilmoituksen" on public.saved_notices
+  for insert to authenticated with check (user_id = (select auth.uid()));
+drop policy if exists "Käyttäjä voi poistaa tallennuksen" on public.saved_notices;
+create policy "Käyttäjä voi poistaa tallennuksen" on public.saved_notices
+  for delete to authenticated using (user_id = (select auth.uid()));
+
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (
   'uploads',
@@ -244,6 +330,13 @@ end;
 $$;
 
 create extension if not exists pg_cron;
+do $$
+begin
+  perform cron.unschedule('cleanup-expired-notices');
+exception when others then
+  null;
+end;
+$$;
 select cron.schedule(
   'cleanup-expired-notices',
   '0 * * * *',

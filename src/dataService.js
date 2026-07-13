@@ -230,3 +230,68 @@ export async function createMessage(recipientId, recipientName, text, user, file
     incoming: false,
   };
 }
+
+export async function fetchSavedNoticeIds(userId) {
+  const { data, error } = await supabase
+    .from("saved_notices")
+    .select("notice_id")
+    .eq("user_id", userId);
+  if (error) throw error;
+  return (data || []).map((row) => row.notice_id);
+}
+
+export async function saveNotice(userId, noticeId) {
+  const { error } = await supabase
+    .from("saved_notices")
+    .insert({ user_id: userId, notice_id: noticeId });
+  if (error && error.code !== "23505") throw error;
+}
+
+export async function unsaveNotice(userId, noticeId) {
+  const { error } = await supabase
+    .from("saved_notices")
+    .delete()
+    .eq("user_id", userId)
+    .eq("notice_id", noticeId);
+  if (error) throw error;
+}
+
+export async function createReport(notice, reason, details, userId) {
+  const { error } = await supabase.from("reports").insert({
+    reporter_id: userId,
+    notice_id: notice.id,
+    reported_user_id: notice.owner,
+    reported_user_name: notice.user,
+    notice_title: notice.name,
+    reason,
+    details: details.trim(),
+  });
+  if (error) throw error;
+}
+
+export async function checkAdminRole(userId) {
+  const { data, error } = await supabase
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.role === "admin";
+}
+
+export async function fetchReports() {
+  const { data, error } = await supabase
+    .from("reports")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+export async function setReportStatus(id, status) {
+  const { error } = await supabase
+    .from("reports")
+    .update({ status, handled_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw error;
+}

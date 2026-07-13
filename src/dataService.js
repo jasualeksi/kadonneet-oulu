@@ -5,6 +5,7 @@ const formatDate = (value) => new Date(value).toLocaleDateString("fi-FI");
 function mapComment(row) {
   return {
     id: row.id,
+    userId: row.user_id,
     user: row.user_name,
     text: row.body || "",
     image: row.image_url || "",

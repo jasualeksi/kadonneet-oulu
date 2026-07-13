@@ -167,7 +167,8 @@ function App() {
     [menu, setMenu] = useState(false),
     [toast, setToast] = useState(""),
     [messages, setMessages] = useState([]),
-    [active, setActive] = useState(null);
+    [active, setActive] = useState(null),
+    [publicProfile, setPublicProfile] = useState(null);
   useEffect(() => {
     if (!supabase) return;
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -267,6 +268,11 @@ function App() {
     go("home");
     notify("Kirjauduit ulos");
   };
+  const openProfile = (id, username) => {
+    setActive(null);
+    setPublicProfile({ id, username });
+    go("profile");
+  };
   return (
     <div className="app">
       <Header
@@ -303,6 +309,13 @@ function App() {
             logout={logout}
           />
         )}
+        {view === "profile" && publicProfile && (
+          <PublicProfile
+            selected={publicProfile}
+            notices={data.filter((notice) => notice.owner === publicProfile.id)}
+            openNotice={setActive}
+          />
+        )}
         {view === "info" && <Info />}
       </main>
       <Footer go={go} protectedGo={protectedGo} />
@@ -328,6 +341,7 @@ function App() {
           }}
           addComment={addNoticeComment}
           message={sendPrivateMessage}
+          openProfile={openProfile}
         />
       )}
       {toast && (
@@ -1057,13 +1071,28 @@ function Auth({ close, login, initialMode }) {
   );
 }
 
-function NoticeDetail({ notice, close, user, requireLogin, addComment, message }) {
+function relativeCommentTime(created, now = Date.now()) {
+  const minutes = Math.max(0, Math.floor((now - created) / 60000));
+  if (minutes < 1) return "juuri nyt";
+  if (minutes < 60) return `${minutes} min sitten`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} h sitten`;
+  const days = Math.floor(hours / 24);
+  return `${days} ${days === 1 ? "päivä" : "päivää"} sitten`;
+}
+
+function NoticeDetail({ notice, close, user, requireLogin, addComment, message, openProfile }) {
   const [commentText, setCommentText] = useState(""),
     [imageFile, setImageFile] = useState(null),
     [dmText, setDmText] = useState(""),
     [dm, setDm] = useState(false),
     [sending, setSending] = useState(false),
+    [now, setNow] = useState(Date.now()),
     [actionError, setActionError] = useState("");
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60000);
+    return () => clearInterval(timer);
+  }, []);
   const comment = async () => {
     if (!user) return requireLogin();
     if (!commentText.trim() && !imageFile) return;
@@ -1161,9 +1190,17 @@ function NoticeDetail({ notice, close, user, requireLogin, addComment, message }
           </h3>
           {notice.comments?.map((c) => (
             <div className="comment" key={c.id}>
-              <b>{c.user}</b>
+              <div className="commenthead">
+                <button onClick={() => openProfile(c.userId, c.user)}>
+                  <span>{c.user?.[0]}</span>
+                  <b>{c.user}</b>
+                </button>
+                <time title={new Date(c.created).toLocaleString("fi-FI")}>
+                  {relativeCommentTime(c.created, now)}
+                </time>
+              </div>
               {c.text && <p>{c.text}</p>}
-              {c.image && <img src={c.image} />}
+              {c.image && <img src={c.image} alt="Kommenttiin lisätty kuva" />}
             </div>
           ))}
           {!notice.comments?.length && <p className="muted">Ei kommentteja.</p>}
@@ -1194,6 +1231,64 @@ function NoticeDetail({ notice, close, user, requireLogin, addComment, message }
         </div>
       </div>
     </div>
+  );
+}
+
+function PublicProfile({ selected, notices, openNotice }) {
+  const [profile, setProfile] = useState(selected);
+
+  useEffect(() => {
+    let current = true;
+    setProfile(selected);
+    supabase
+      ?.from("profiles")
+      .select("id, username, created_at")
+      .eq("id", selected.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (current && data) setProfile(data);
+      });
+    return () => {
+      current = false;
+    };
+  }, [selected]);
+
+  return (
+    <section className="page publicprofile">
+      <div className="profilehero">
+        <span className="profileavatar">{profile.username?.[0]?.toUpperCase()}</span>
+        <div>
+          <span className="kicker">KÄYTTÄJÄPROFIILI</span>
+          <h1>{profile.username}</h1>
+          {profile.created_at && (
+            <p>Liittynyt {new Date(profile.created_at).toLocaleDateString("fi-FI")}</p>
+          )}
+        </div>
+      </div>
+      <div className="section-title profiletitle">
+        <div>
+          <h2>Käyttäjän ilmoitukset</h2>
+          <p>{notices.length} voimassa olevaa ilmoitusta</p>
+        </div>
+      </div>
+      {notices.length ? (
+        <div className="cards listing">
+          {notices.map((notice) => (
+            <Card
+              key={notice.id}
+              n={notice}
+              open={() => openNotice(notice)}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="empty profileempty">
+          <LayoutList />
+          <h3>Ei voimassa olevia ilmoituksia</h3>
+          <p>Tällä käyttäjällä ei ole tällä hetkellä julkisia ilmoituksia.</p>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -1380,7 +1475,7 @@ function Info() {
       </div>
       <div className="infobox warning">
         <strong>Hätätilanteessa soita aina numeroon 112.</strong>
-        <p>Palvelu ei korvaa viranomaisille tehtävää ilmoitusta.</p>
+        <p>Palvelun käyttö ei poista velvollisuutta tehdä tarvittavaa ilmoitusta viranomaisille.</p>
       </div>
       {[
         [

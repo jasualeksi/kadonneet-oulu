@@ -296,7 +296,7 @@ function HomePage({ go, protectedGo, count }) {
         <p>
           {count
             ? "Avaa ilmoituslista nähdäksesi kaikki ilmoitukset."
-            : "Ensimmäinen oikea ilmoitus tulee näkyviin vasta, kun kirjautunut käyttäjä julkaisee sen."}
+            : "Ilmoituksia ei ole vielä julkaistu."}
         </p>
         <button className="secondary" onClick={() => go("notices")}>
           Avaa ilmoitukset <ArrowRight />

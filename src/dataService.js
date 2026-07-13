@@ -151,26 +151,34 @@ export async function fetchMessages(userId) {
     partnerName: row.sender_id === userId ? row.recipient_name : row.sender_name,
     to: row.sender_id === userId ? row.recipient_name : row.sender_name,
     from: row.sender_name,
-    text: row.body,
+    text: row.body || "",
+    image: row.image_url || "",
     date: formatDate(row.created_at),
     created: new Date(row.created_at).getTime(),
     incoming: row.recipient_id === userId,
   }));
 }
 
-export async function createMessage(recipientId, recipientName, text, user) {
-  const { data, error } = await supabase
-    .from("messages")
-    .insert({
+export async function createMessage(recipientId, recipientName, text, user, file) {
+  const uploadedImage = await uploadImage(file, user.id, "messages");
+  const values = {
       sender_id: user.id,
       recipient_id: recipientId,
       sender_name: user.username,
       recipient_name: recipientName,
-      body: text.trim(),
-    })
+      body: text.trim() || null,
+      ...(uploadedImage ? { image_url: uploadedImage.url } : {}),
+    };
+  const { data, error } = await supabase
+    .from("messages")
+    .insert(values)
     .select()
     .single();
-  if (error) throw error;
+  if (error) {
+    if (uploadedImage)
+      await supabase.storage.from("uploads").remove([uploadedImage.path]);
+    throw error;
+  }
   return {
     id: data.id,
     senderId: user.id,
@@ -179,7 +187,8 @@ export async function createMessage(recipientId, recipientName, text, user) {
     partnerName: recipientName,
     to: recipientName,
     from: user.username,
-    text: data.body,
+    text: data.body || "",
+    image: data.image_url || "",
     date: formatDate(data.created_at),
     created: new Date(data.created_at).getTime(),
     incoming: false,

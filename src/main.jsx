@@ -273,8 +273,8 @@ function App() {
     setActive((current) => (current ? applyComment(current) : current));
     notify("Kommentti lähetettiin");
   };
-  const sendPrivateMessage = async (recipientId, recipientName, text) => {
-    const sent = await createMessage(recipientId, recipientName, text, user);
+  const sendPrivateMessage = async (recipientId, recipientName, text, file = null) => {
+    const sent = await createMessage(recipientId, recipientName, text, user, file);
     setMessages((current) => [sent, ...current]);
     notify("Yksityisviesti lähetettiin");
   };
@@ -1202,6 +1202,7 @@ function NoticeDetail({ notice, close, user, requireLogin, addComment, message, 
   const [commentText, setCommentText] = useState(""),
     [imageFile, setImageFile] = useState(null),
     [dmText, setDmText] = useState(""),
+    [dmImageFile, setDmImageFile] = useState(null),
     [dm, setDm] = useState(false),
     [sending, setSending] = useState(false),
     [now, setNow] = useState(Date.now()),
@@ -1280,25 +1281,36 @@ function NoticeDetail({ notice, close, user, requireLogin, addComment, message, 
               onChange={(e) => setDmText(e.target.value)}
               placeholder="Kirjoita viesti"
             />
-            <button
-              className="primary"
-              disabled={sending || !dmText.trim()}
-              onClick={async () => {
-                setSending(true);
-                setActionError("");
-                try {
-                  await message(notice.owner, notice.user, dmText);
-                  setDm(false);
-                  setDmText("");
-                } catch (error) {
-                  setActionError(`Viestiä ei voitu lähettää: ${error.message}`);
-                } finally {
-                  setSending(false);
-                }
-              }}
-            >
-              Lähetä
-            </button>
+            <div className="dm-actions">
+              <label className="imagepick">
+                <ImagePlus /> {dmImageFile ? dmImageFile.name : "Lisää kuva"}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={(event) => setDmImageFile(event.target.files[0] || null)}
+                />
+              </label>
+              <button
+                className="primary"
+                disabled={sending || (!dmText.trim() && !dmImageFile)}
+                onClick={async () => {
+                  setSending(true);
+                  setActionError("");
+                  try {
+                    await message(notice.owner, notice.user, dmText, dmImageFile);
+                    setDm(false);
+                    setDmText("");
+                    setDmImageFile(null);
+                  } catch (error) {
+                    setActionError(`Viestiä ei voitu lähettää: ${error.message}`);
+                  } finally {
+                    setSending(false);
+                  }
+                }}
+              >
+                <Send /> Lähetä
+              </button>
+            </div>
           </div>
         )}
         <div className="comments">
@@ -1443,6 +1455,7 @@ function Mine({ data, open, remove, markFound, protectedGo }) {
 function Messages({ messages, send }) {
   const [selectedId, setSelectedId] = useState(null),
     [draft, setDraft] = useState(""),
+    [messageImage, setMessageImage] = useState(null),
     [sending, setSending] = useState(false),
     [error, setError] = useState(""),
     [now, setNow] = useState(Date.now());
@@ -1485,12 +1498,13 @@ function Messages({ messages, send }) {
 
   const reply = async (event) => {
     event.preventDefault();
-    if (!selected || !draft.trim() || sending) return;
+    if (!selected || (!draft.trim() && !messageImage) || sending) return;
     setSending(true);
     setError("");
     try {
-      await send(selected.id, selected.name, draft);
+      await send(selected.id, selected.name, draft, messageImage);
       setDraft("");
+      setMessageImage(null);
     } catch (sendError) {
       setError(`Viestiä ei voitu lähettää: ${sendError.message}`);
     } finally {
@@ -1523,7 +1537,7 @@ function Messages({ messages, send }) {
                   <span className="chatavatar">{conversation.name?.[0]}</span>
                   <span className="conversationpreview">
                     <strong>{conversation.name}</strong>
-                    <span>{latest.incoming ? "" : "Sinä: "}{latest.text}</span>
+                    <span>{latest.incoming ? "" : "Sinä: "}{latest.text || "Kuva"}</span>
                   </span>
                   <time>{relativeCommentTime(latest.created, now)}</time>
                 </button>
@@ -1546,7 +1560,10 @@ function Messages({ messages, send }) {
                       key={message.id}
                       className={`chatbubble ${message.incoming ? "incoming" : "outgoing"}`}
                     >
-                      <p>{message.text}</p>
+                      {message.text && <p>{message.text}</p>}
+                      {message.image && (
+                        <img src={message.image} alt="Yksityisviestiin lisätty kuva" />
+                      )}
                       <time title={new Date(message.created).toLocaleString("fi-FI")}>
                         {relativeCommentTime(message.created, now)}
                       </time>
@@ -1555,15 +1572,34 @@ function Messages({ messages, send }) {
                   <div ref={messagesEnd} />
                 </div>
                 <form className="chatcomposer" onSubmit={reply}>
+                  <label className="chatimagepick" title="Lisää kuva">
+                    <ImagePlus />
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      onChange={(event) => setMessageImage(event.target.files[0] || null)}
+                    />
+                  </label>
                   <textarea
                     value={draft}
                     onChange={(event) => setDraft(event.target.value)}
                     placeholder="Kirjoita viesti"
                     maxLength={2000}
                   />
-                  <button className="primary" disabled={sending || !draft.trim()}>
+                  <button
+                    className="primary"
+                    disabled={sending || (!draft.trim() && !messageImage)}
+                  >
                     <Send /> Lähetä
                   </button>
+                  {messageImage && (
+                    <div className="selectedchatimage">
+                      <ImagePlus /> <span>{messageImage.name}</span>
+                      <button type="button" onClick={() => setMessageImage(null)} aria-label="Poista valittu kuva">
+                        <X />
+                      </button>
+                    </div>
+                  )}
                 </form>
                 {error && <div className="autherror chaterror">{error}</div>}
               </>

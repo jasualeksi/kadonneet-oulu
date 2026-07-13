@@ -172,11 +172,23 @@ create table if not exists public.messages (
   recipient_id uuid not null references auth.users(id) on delete cascade,
   sender_name text not null,
   recipient_name text not null,
-  body text not null check (char_length(body) between 1 and 2000),
+  body text check (body is null or char_length(body) between 1 and 2000),
+  image_url text,
   read_at timestamptz,
   created_at timestamptz not null default now(),
-  check (sender_id <> recipient_id)
+  check (sender_id <> recipient_id),
+  check (body is not null or image_url is not null)
 );
+
+alter table public.messages add column if not exists image_url text;
+alter table public.messages alter column body drop not null;
+alter table public.messages drop constraint if exists messages_body_check;
+alter table public.messages drop constraint if exists messages_content_check;
+alter table public.messages add constraint messages_content_check
+  check (
+    (body is not null and char_length(body) between 1 and 2000)
+    or image_url is not null
+  );
 
 create index if not exists messages_sender_idx on public.messages (sender_id, created_at desc);
 create index if not exists messages_recipient_idx on public.messages (recipient_id, created_at desc);

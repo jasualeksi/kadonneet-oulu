@@ -111,7 +111,7 @@ function App() {
       />
       <main>
         {view === "home" && (
-          <HomePage go={go} protectedGo={protectedGo} count={data.length} />
+          <HomePage go={go} protectedGo={protectedGo} data={data} />
         )}
         {view === "notices" && <Notices data={data} open={setActive} />}
         {view === "new" && <NewNotice onSubmit={add} />}
@@ -241,7 +241,12 @@ function Header({ user, view, go, protectedGo, setLogin, menu, setMenu }) {
   );
 }
 
-function HomePage({ go, protectedGo, count }) {
+function HomePage({ go, protectedGo, data }) {
+  const count = data.length;
+  const latest = data.length
+    ? [...data].sort((a, b) => b.created - a.created)[0].date
+    : "–";
+  const foundCount = data.filter((notice) => notice.found).length;
   return (
     <>
       <section className="hero">
@@ -283,12 +288,12 @@ function HomePage({ go, protectedGo, count }) {
           <span>Julkaistua ilmoitusta</span>
         </div>
         <div>
-          <b>4</b>
-          <span>Ihmiset, eläimet, menopelit ja tavarat</span>
+          <b>{latest}</b>
+          <span>Uusin ilmoitus</span>
         </div>
         <div>
-          <b>14 vrk</b>
-          <span>Ilmoituksen voimassaoloaika</span>
+          <b>{foundCount}</b>
+          <span>Löytyneeksi merkittyä</span>
         </div>
       </section>
       <section className="latest emptyhome">

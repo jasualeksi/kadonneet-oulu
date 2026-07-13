@@ -847,13 +847,33 @@ function Auth({ close, login, initialMode }) {
       setError("Salasanat eivät täsmää.");
       return;
     }
+    const cleanUsername = username.trim();
+    if (register && (cleanUsername.length < 3 || cleanUsername.length > 30)) {
+      setError("Käyttäjänimessä pitää olla 3–30 merkkiä.");
+      return;
+    }
     setLoading(true);
     if (register) {
+      const { data: existing, error: profileError } = await supabase
+        .from("profiles")
+        .select("id")
+        .ilike("username", cleanUsername)
+        .maybeSingle();
+      if (profileError) {
+        setLoading(false);
+        setError("Käyttäjänimien tarkistus ei ole vielä käytössä. Suorita Supabasen schema.sql-tiedosto.");
+        return;
+      }
+      if (existing) {
+        setLoading(false);
+        setError("Käyttäjänimi on jo käytössä. Valitse toinen käyttäjänimi.");
+        return;
+      }
       const { data, error: authError } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          data: { username },
+          data: { username: cleanUsername },
           emailRedirectTo: window.location.origin,
         },
       });
@@ -1175,9 +1195,38 @@ function AccountSettings({ user, updateUser, notify, logout }) {
   const saveUsername = async (e) => {
     e.preventDefault();
     setError("");
+    const cleanUsername = username.trim();
+    if (cleanUsername.length < 3 || cleanUsername.length > 30)
+      return setError("Käyttäjänimessä pitää olla 3–30 merkkiä.");
     setSaving(true);
+    const { data: existing, error: checkError } = await supabase
+      .from("profiles")
+      .select("id")
+      .ilike("username", cleanUsername)
+      .neq("id", user.id)
+      .maybeSingle();
+    if (checkError || existing) {
+      setSaving(false);
+      return setError(
+        existing
+          ? "Käyttäjänimi on jo käytössä. Valitse toinen käyttäjänimi."
+          : "Käyttäjänimeä ei voitu tarkistaa.",
+      );
+    }
+    const { error: profileUpdateError } = await supabase
+      .from("profiles")
+      .update({ username: cleanUsername })
+      .eq("id", user.id);
+    if (profileUpdateError) {
+      setSaving(false);
+      return setError(
+        profileUpdateError.code === "23505"
+          ? "Käyttäjänimi on jo käytössä. Valitse toinen käyttäjänimi."
+          : "Käyttäjänimeä ei voitu päivittää.",
+      );
+    }
     const { data, error: updateError } = await supabase.auth.updateUser({
-      data: { username },
+      data: { username: cleanUsername },
     });
     setSaving(false);
     if (updateError) return setError(updateError.message);

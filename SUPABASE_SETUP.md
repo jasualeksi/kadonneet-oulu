@@ -18,6 +18,15 @@ VITE_SUPABASE_ANON_KEY=sb_publishable_YOUR_KEY
 
 Käynnistä sen jälkeen kehityspalvelin uudelleen komennolla `npm run dev`.
 
+## Käyttäjänimien yksilöllisyys
+
+1. Avaa Supabase-projektissa **SQL Editor**.
+2. Avaa projektista tiedosto `supabase/schema.sql`.
+3. Kopioi tiedoston koko sisältö SQL Editoriin.
+4. Paina **Run**.
+
+Tämä luo profiilitaulun ja estää saman käyttäjänimen käyttämisen myös silloin, kun kirjainkoko on eri.
+
 ## 3. Cloudflare
 
 Lisää Cloudflare-projektin **Settings → Variables and Secrets** -kohtaan:

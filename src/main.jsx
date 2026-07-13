@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { createRoot } from "react-dom/client";
 import {
   Search,
@@ -44,6 +45,7 @@ import {
   Bookmark,
   BookmarkCheck,
   RotateCcw,
+  AlertTriangle,
 } from "lucide-react";
 import "./styles.css";
 import { accountFromUser, supabase, supabaseConfigured } from "./supabase";
@@ -203,6 +205,34 @@ const REPORT_REASONS = {
 const TURNSTILE_SITE_KEY = (import.meta.env.VITE_TURNSTILE_SITE_KEY || "").trim();
 const TERMS_VERSION = "2026-07-13";
 const SUPPORT_EMAIL = "yllapito@kadonneet-oulu.fi";
+const SUPPORT_MAIL_URL = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(SUPPORT_EMAIL)}&su=${encodeURIComponent("Yhteydenotto Kadonneet Oulu -palveluun")}`;
+
+function ConfirmDialog({ title, message, confirmLabel, danger = false, busy = false, onConfirm, onCancel }) {
+  return createPortal(
+    <div
+      className="confirmoverlay"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !busy) onCancel();
+      }}
+    >
+      <div className="confirmdialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+        <div className={`confirmicon ${danger ? "danger" : ""}`}>
+          {danger ? <AlertTriangle /> : <CircleHelp />}
+        </div>
+        <h2 id="confirm-title">{title}</h2>
+        <p id="confirm-message">{message}</p>
+        <div className="confirmactions">
+          <button type="button" className="secondary" disabled={busy} onClick={onCancel}>Peruuta</button>
+          <button type="button" className={danger ? "confirmdanger" : "primary"} disabled={busy} onClick={onConfirm}>
+            {busy ? "Odota…" : confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
 
 function routeFromPath(pathname) {
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
@@ -1025,7 +1055,8 @@ function TypeIcon({ type }) {
 }
 
 function Card({ n, open, remove, markFound, reopenNotice, edit, report, saved, toggleSaved }) {
-  const [shared, setShared] = useState(false);
+  const [shared, setShared] = useState(false),
+    [confirmation, setConfirmation] = useState(null);
   const shareCard = async () => {
     const url = `${window.location.origin}/ilmoitukset/${n.id}`;
     try {
@@ -1040,7 +1071,15 @@ function Card({ n, open, remove, markFound, reopenNotice, edit, report, saved, t
       // Jakovalikon peruuttaminen ei vaadi virheilmoitusta.
     }
   };
+  const confirmCardAction = () => {
+    const action = confirmation;
+    setConfirmation(null);
+    if (action === "found") markFound?.(n.id);
+    if (action === "reopen") reopenNotice?.(n.id);
+    if (action === "delete") remove?.(n.id);
+  };
   return (
+    <>
     <article className={`card ${n.found ? "found" : ""}`} onClick={open}>
       <div className="photo">
         {n.preview ? (
@@ -1122,11 +1161,7 @@ function Card({ n, open, remove, markFound, reopenNotice, edit, report, saved, t
             className="foundbtn"
             onClick={(e) => {
               e.stopPropagation();
-              const confirmed = window.confirm(
-                "Oletko varma, että haluat merkitä tämän löytyneeksi? Ilmoitus poistetaan automaattisesti viiden vuorokauden kuluttua. Voit aktivoida sen uudelleen ennen poistamista.",
-              );
-              if (!confirmed) return;
-              markFound(n.id);
+              setConfirmation("found");
             }}
           >
             <CheckCircle2 /> Merkitse löytyneeksi
@@ -1137,11 +1172,7 @@ function Card({ n, open, remove, markFound, reopenNotice, edit, report, saved, t
             className="foundbtn reactivatebtn"
             onClick={(e) => {
               e.stopPropagation();
-              const confirmed = window.confirm(
-                "Aktivoidaanko tämä ilmoitus uudelleen? Se palautuu avoimeksi alkuperäisellä julkaisuajallaan.",
-              );
-              if (!confirmed) return;
-              reopenNotice(n.id);
+              setConfirmation("reopen");
             }}
           >
             <RotateCcw /> Aktivoi uudelleen
@@ -1163,7 +1194,7 @@ function Card({ n, open, remove, markFound, reopenNotice, edit, report, saved, t
             className="deletebtn"
             onClick={(e) => {
               e.stopPropagation();
-              remove(n.id);
+              setConfirmation("delete");
             }}
           >
             <Trash2 /> Poista ilmoitus
@@ -1171,6 +1202,23 @@ function Card({ n, open, remove, markFound, reopenNotice, edit, report, saved, t
         )}
       </div>
     </article>
+    {confirmation && (
+      <ConfirmDialog
+        title={confirmation === "found" ? "Merkitäänkö löytyneeksi?" : confirmation === "reopen" ? "Aktivoidaanko ilmoitus?" : "Poistetaanko ilmoitus?"}
+        message={
+          confirmation === "found"
+            ? "Ilmoitus merkitään löytyneeksi ja poistetaan automaattisesti viiden vuorokauden kuluttua. Voit aktivoida sen uudelleen ennen poistamista."
+            : confirmation === "reopen"
+              ? "Ilmoitus palautuu avoimeksi alkuperäisellä julkaisuajallaan."
+              : "Ilmoitus, sen kommentit ja siihen liittyvät tiedot poistetaan pysyvästi."
+        }
+        confirmLabel={confirmation === "found" ? "Merkitse löytyneeksi" : confirmation === "reopen" ? "Aktivoi uudelleen" : "Poista ilmoitus"}
+        danger={confirmation === "delete"}
+        onCancel={() => setConfirmation(null)}
+        onConfirm={confirmCardAction}
+      />
+    )}
+    </>
   );
 }
 
@@ -1692,6 +1740,7 @@ function NoticeDetail({ notice, close, user, requireLogin, addComment, editComme
     [commentBusy, setCommentBusy] = useState(false),
     [editingCommentId, setEditingCommentId] = useState(null),
     [editingCommentText, setEditingCommentText] = useState(""),
+    [commentToDelete, setCommentToDelete] = useState(null),
     [now, setNow] = useState(Date.now()),
     [actionError, setActionError] = useState("");
   useEffect(() => {
@@ -1729,11 +1778,11 @@ function NoticeDetail({ notice, close, user, requireLogin, addComment, editComme
     }
   };
   const removeOwnComment = async (comment) => {
-    if (!window.confirm("Poistetaanko tämä kommentti pysyvästi?")) return;
     setCommentBusy(true);
     setActionError("");
     try {
       await deleteComment(notice.id, comment);
+      setCommentToDelete(null);
       if (editingCommentId === comment.id) {
         setEditingCommentId(null);
         setEditingCommentText("");
@@ -1895,7 +1944,7 @@ function NoticeDetail({ notice, close, user, requireLogin, addComment, editComme
                         aria-label="Poista kommentti"
                         title="Poista kommentti"
                         disabled={commentBusy}
-                        onClick={() => removeOwnComment(c)}
+                        onClick={() => setCommentToDelete(c)}
                       >
                         <Trash2 />
                       </button>
@@ -1966,6 +2015,17 @@ function NoticeDetail({ notice, close, user, requireLogin, addComment, editComme
           {actionError && <div className="autherror">{actionError}</div>}
         </div>
       </div>
+      {commentToDelete && (
+        <ConfirmDialog
+          title="Poistetaanko kommentti?"
+          message="Kommentti poistetaan pysyvästi eikä se näy enää muille käyttäjille. Myös kommenttiin lisätty kuva poistetaan."
+          confirmLabel="Poista kommentti"
+          danger
+          busy={commentBusy}
+          onCancel={() => setCommentToDelete(null)}
+          onConfirm={() => removeOwnComment(commentToDelete)}
+        />
+      )}
     </div>
   );
 }
@@ -2334,7 +2394,9 @@ function AdminPanel({ notify, removeNotice }) {
   const [reports, setReports] = useState([]),
     [loading, setLoading] = useState(true),
     [filter, setFilter] = useState("pending"),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [reportToDelete, setReportToDelete] = useState(null),
+    [deleting, setDeleting] = useState(false);
 
   const loadReports = () => {
     setLoading(true);
@@ -2358,9 +2420,11 @@ function AdminPanel({ notify, removeNotice }) {
   };
   const removeReportedNotice = async (report) => {
     if (!report.notice_id) return;
-    if (!window.confirm(`Poistetaanko ilmoitus ”${report.notice_title}” pysyvästi?`)) return;
+    setDeleting(true);
     const removed = await removeNotice(report.notice_id);
     if (removed) await handleStatus(report, "actioned");
+    setDeleting(false);
+    if (removed) setReportToDelete(null);
   };
   const visible = reports.filter((report) => filter === "all" || report.status === filter);
   return (
@@ -2394,7 +2458,7 @@ function AdminPanel({ notify, removeNotice }) {
               {report.status === "pending" && (
                 <div className="adminreportactions">
                   <button className="secondary" onClick={() => handleStatus(report, "dismissed")}>Ei toimenpiteitä</button>
-                  <button className="deletebtn" disabled={!report.notice_id} onClick={() => removeReportedNotice(report)}><Trash2 /> Poista julkaisu</button>
+                  <button className="deletebtn" disabled={!report.notice_id} onClick={() => setReportToDelete(report)}><Trash2 /> Poista julkaisu</button>
                 </div>
               )}
             </article>
@@ -2402,6 +2466,17 @@ function AdminPanel({ notify, removeNotice }) {
         </div>
       ) : (
         <div className="empty"><ShieldCheck /><h3>Ei raportteja</h3><p>Tässä ryhmässä ei ole sisältöraportteja.</p></div>
+      )}
+      {reportToDelete && (
+        <ConfirmDialog
+          title="Poistetaanko raportoitu julkaisu?"
+          message={`Julkaisu ”${reportToDelete.notice_title}”, sen kommentit ja siihen liittyvät tiedot poistetaan pysyvästi.`}
+          confirmLabel="Poista julkaisu"
+          danger
+          busy={deleting}
+          onCancel={() => setReportToDelete(null)}
+          onConfirm={() => removeReportedNotice(reportToDelete)}
+        />
       )}
     </section>
   );
@@ -2566,7 +2641,7 @@ function Terms() {
         <div>
           <b>Palvelun ylläpito</b>
           <span>Kadonneet Oulu -palvelun ylläpito</span>
-          <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>
+          <a href={SUPPORT_MAIL_URL} target="_blank" rel="noreferrer">{SUPPORT_EMAIL}</a>
         </div>
       </div>
 
@@ -2602,7 +2677,7 @@ function Terms() {
         <p>Ehtoja voidaan muuttaa palvelun kehittämisen tai lainsäädännön vuoksi. Merkittävistä muutoksista ilmoitetaan palvelussa ennen uusien ehtojen soveltamista. Ehtosivulla näytetään aina voimassa oleva versio ja voimaantulopäivä.</p>
 
         <h2>11. Sovellettava laki ja yhteydenotot</h2>
-        <p>Palveluun sovelletaan Suomen lakia. Palvelua, sisältöpäätöksiä ja näitä ehtoja koskevat yhteydenotot voi lähettää osoitteeseen <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>.</p>
+        <p>Palveluun sovelletaan Suomen lakia. Palvelua, sisältöpäätöksiä ja näitä ehtoja koskevat yhteydenotot voi lähettää osoitteeseen <a href={SUPPORT_MAIL_URL} target="_blank" rel="noreferrer">{SUPPORT_EMAIL}</a>.</p>
       </div>
     </section>
   );
@@ -2632,7 +2707,7 @@ function Footer({ go, protectedGo }) {
         <button onClick={() => protectedGo("new")}>Tee ilmoitus</button>
         <button onClick={() => go("info")}>Ohjeet</button>
         <button onClick={() => go("terms")}>Käyttöehdot</button>
-        <a href={`mailto:${SUPPORT_EMAIL}`}>Ota yhteyttä ylläpitoon</a>
+        <a href={SUPPORT_MAIL_URL} target="_blank" rel="noreferrer">Ota yhteyttä ylläpitoon</a>
       </div>
       <div>
         <b>Käyttäjätili</b>
@@ -2645,7 +2720,7 @@ function Footer({ go, protectedGo }) {
         <p>Soita hätänumeroon</p>
         <strong>112</strong>
       </div>
-      <small>© 2026 Kadonneet Oulu · Päivitetty 13.7.2026 · <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a></small>
+      <small>© 2026 Kadonneet Oulu · Päivitetty 13.7.2026 · <a href={SUPPORT_MAIL_URL} target="_blank" rel="noreferrer">{SUPPORT_EMAIL}</a></small>
     </footer>
   );
 }

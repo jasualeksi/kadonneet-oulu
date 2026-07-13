@@ -372,6 +372,24 @@ function App() {
 
 function Header({ user, view, go, protectedGo, setLogin, logout, menu, setMenu }) {
   const [accountMenu, setAccountMenu] = useState(false);
+  const accountMenuRef = useRef(null);
+
+  useEffect(() => {
+    if (!accountMenu) return;
+    const closeOutside = (event) => {
+      if (!accountMenuRef.current?.contains(event.target)) setAccountMenu(false);
+    };
+    const closeWithEscape = (event) => {
+      if (event.key === "Escape") setAccountMenu(false);
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeWithEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("keydown", closeWithEscape);
+    };
+  }, [accountMenu]);
+
   return (
     <header>
       <button className="brand" onClick={() => go("home")}>
@@ -419,7 +437,7 @@ function Header({ user, view, go, protectedGo, setLogin, logout, menu, setMenu }
       </nav>
       <div className="header-actions">
         {user ? (
-          <div className="account-menu-wrap">
+          <div className="account-menu-wrap" ref={accountMenuRef}>
             <button className="login usertrigger" onClick={() => setAccountMenu(!accountMenu)}>
               <UserRound size={18} />
               {user.username}

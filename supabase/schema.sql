@@ -81,7 +81,7 @@ create table if not exists public.notices (
   id uuid primary key default gen_random_uuid(),
   owner_id uuid not null references auth.users(id) on delete cascade,
   user_name text not null,
-  type text not null check (type in ('Eläin', 'Ihminen', 'Menopeli', 'Tavara')),
+  type text not null check (type in ('Eläin', 'Ihminen', 'Ajoneuvo', 'Tavara')),
   title text not null check (char_length(title) between 3 and 120),
   area text not null,
   description text not null check (char_length(description) between 5 and 600),
@@ -94,6 +94,11 @@ create table if not exists public.notices (
   created_at timestamptz not null default now(),
   expires_at timestamptz not null default (now() + interval '14 days')
 );
+
+alter table public.notices drop constraint if exists notices_type_check;
+update public.notices set type = 'Ajoneuvo' where type = 'Menopeli';
+alter table public.notices add constraint notices_type_check
+  check (type in ('Eläin', 'Ihminen', 'Ajoneuvo', 'Tavara'));
 
 create index if not exists notices_created_at_idx on public.notices (created_at desc);
 create index if not exists notices_owner_id_idx on public.notices (owner_id);

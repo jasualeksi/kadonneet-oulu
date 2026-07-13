@@ -16,7 +16,7 @@ function mapComment(row) {
 export function mapNotice(row) {
   return {
     id: row.id,
-    type: row.type,
+    type: row.type === "Menopeli" ? "Ajoneuvo" : row.type,
     name: row.title,
     area: row.area,
     desc: row.description,
@@ -66,9 +66,7 @@ export async function fetchNotices() {
 
 export async function createNotice(form, user) {
   const uploadedImage = await uploadImage(form.imageFile, user.id, "notices");
-  const { data, error } = await supabase
-    .from("notices")
-    .insert({
+  const noticeValues = {
       owner_id: user.id,
       user_name: user.username,
       type: form.type,
@@ -79,9 +77,20 @@ export async function createNotice(form, user) {
       contact_email: form.contactEmail.trim(),
       reward: form.reward ? Number(form.reward) : null,
       image_url: uploadedImage?.url || null,
-    })
+    };
+  let { data, error } = await supabase
+    .from("notices")
+    .insert(noticeValues)
     .select("*, comments(*)")
     .single();
+  // Yhteensopivuus ennen kuin vanhan tietokannan tyyppirajoite on päivitetty.
+  if (error && form.type === "Ajoneuvo") {
+    ({ data, error } = await supabase
+      .from("notices")
+      .insert({ ...noticeValues, type: "Menopeli" })
+      .select("*, comments(*)")
+      .single());
+  }
   if (error) {
     if (uploadedImage)
       await supabase.storage.from("uploads").remove([uploadedImage.path]);

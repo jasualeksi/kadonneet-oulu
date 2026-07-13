@@ -497,7 +497,7 @@ function HomePage({ go, protectedGo, data }) {
             on kadonnut.
           </h1>
           <p>
-            Ilmoita kadonneesta ihmisestä, eläimestä, menopelistä tai tavarasta
+            Ilmoita kadonneesta ihmisestä, eläimestä, ajoneuvosta tai tavarasta
             Oulun alueella. Palvelu on maksuton ja tarkoitettu kaikille oululaisille.
           </p>
           <div className="hero-actions">
@@ -592,7 +592,7 @@ function Notices({ data, open }) {
           />
         </div>
         <div className="tabs">
-          {["Kaikki", "Eläin", "Ihminen", "Menopeli", "Tavara"].map((c) => (
+          {["Kaikki", "Eläin", "Ihminen", "Ajoneuvo", "Tavara"].map((c) => (
             <button
               key={c}
               className={category === c ? "active" : ""}
@@ -671,7 +671,7 @@ function Empty() {
 
 function TypeIcon({ type }) {
   if (type === "Eläin") return <PawPrint />;
-  if (type === "Menopeli") return <Bike />;
+  if (type === "Ajoneuvo") return <Bike />;
   if (type === "Tavara") return <Package />;
   return <UserRound />;
 }
@@ -775,7 +775,7 @@ function NewNotice({ onSubmit }) {
       <form className="noticeform" onSubmit={submit}>
         <FormBlock no="1" title="Mitä ilmoitus koskee?">
           <div className="typechoice">
-            {["Eläin", "Ihminen", "Menopeli", "Tavara"].map((t) => (
+            {["Eläin", "Ihminen", "Ajoneuvo", "Tavara"].map((t) => (
               <button
                 key={t}
                 type="button"
@@ -788,7 +788,7 @@ function NewNotice({ onSubmit }) {
                   {{
                     Eläin: "Koira, kissa tai muu eläin",
                     Ihminen: "Kadonnut henkilö",
-                    Menopeli: "Pyörä, mopo tai muu menopeli",
+                    Ajoneuvo: "Pyörä, mopo tai muu ajoneuvo",
                     Tavara: "Kadonnut esine tai muu tavara",
                   }[t]}
                 </span>
@@ -809,7 +809,7 @@ function NewNotice({ onSubmit }) {
                     ? "Esim. Kadonnut henkilö"
                     : f.type === "Eläin"
                       ? "Esim. Ruskea koira kateissa"
-                      : f.type === "Menopeli"
+                      : f.type === "Ajoneuvo"
                         ? "Esim. Musta polkupyörä kateissa"
                         : "Esim. Avaimet kadonneet"
                 }
@@ -1664,7 +1664,7 @@ function Footer({ go, protectedGo }) {
           </span>
         </div>
         <p>
-          Paikallinen palvelu kadonneiden ihmisten, eläinten, menopelien ja
+          Paikallinen palvelu kadonneiden ihmisten, eläinten, ajoneuvojen ja
           tavaroiden löytämiseksi.
         </p>
       </div>

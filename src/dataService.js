@@ -10,6 +10,8 @@ function mapComment(row) {
     text: row.body || "",
     image: row.image_url || "",
     created: new Date(row.created_at).getTime(),
+    updated: new Date(row.updated_at || row.created_at).getTime(),
+    edited: Boolean(row.updated_at && new Date(row.updated_at).getTime() - new Date(row.created_at).getTime() > 1000),
   };
 }
 
@@ -181,6 +183,34 @@ export async function createComment(noticeId, text, file, user) {
     throw error;
   }
   return mapComment(data);
+}
+
+export async function updateComment(commentId, text, userId) {
+  const { data, error } = await supabase
+    .from("comments")
+    .update({ body: text.trim() || null, updated_at: new Date().toISOString() })
+    .eq("id", commentId)
+    .eq("user_id", userId)
+    .select()
+    .single();
+  if (error) throw error;
+  return mapComment(data);
+}
+
+export async function deleteComment(commentId, userId, imageUrl = "") {
+  const { error } = await supabase
+    .from("comments")
+    .delete()
+    .eq("id", commentId)
+    .eq("user_id", userId);
+  if (error) throw error;
+
+  const marker = "/storage/v1/object/public/uploads/";
+  const markerIndex = imageUrl.indexOf(marker);
+  if (markerIndex !== -1) {
+    const path = decodeURIComponent(imageUrl.slice(markerIndex + marker.length));
+    await supabase.storage.from("uploads").remove([path]);
+  }
 }
 
 export async function fetchMessages(userId) {

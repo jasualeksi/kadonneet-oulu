@@ -50,6 +50,8 @@ import { accountFromUser, supabase, supabaseConfigured } from "./supabase";
 import { validateUsername } from "./usernameModeration";
 import {
   createComment,
+  updateComment,
+  deleteComment,
   createMessage,
   createNotice,
   updateNotice,
@@ -432,6 +434,34 @@ function App() {
     setActive((current) => (current ? applyComment(current) : current));
     notify("Kommentti lähetettiin");
   };
+  const editNoticeComment = async (noticeId, commentId, text) => {
+    const updatedComment = await updateComment(commentId, text, user.id);
+    const applyEdit = (notice) =>
+      notice.id === noticeId
+        ? {
+            ...notice,
+            comments: (notice.comments || []).map((comment) =>
+              comment.id === commentId ? updatedComment : comment,
+            ),
+          }
+        : notice;
+    setData((current) => current.map(applyEdit));
+    setActive((current) => (current ? applyEdit(current) : current));
+    notify("Kommentti päivitettiin");
+  };
+  const removeNoticeComment = async (noticeId, comment) => {
+    await deleteComment(comment.id, user.id, comment.image);
+    const applyDelete = (notice) =>
+      notice.id === noticeId
+        ? {
+            ...notice,
+            comments: (notice.comments || []).filter((item) => item.id !== comment.id),
+          }
+        : notice;
+    setData((current) => current.map(applyDelete));
+    setActive((current) => (current ? applyDelete(current) : current));
+    notify("Kommentti poistettiin");
+  };
   const sendPrivateMessage = async (recipientId, recipientName, text, file = null) => {
     const sent = await createMessage(recipientId, recipientName, text, user, file);
     setMessages((current) => [sent, ...current]);
@@ -575,6 +605,8 @@ function App() {
             setLogin(true);
           }}
           addComment={addNoticeComment}
+          editComment={editNoticeComment}
+          deleteComment={removeNoticeComment}
           message={sendPrivateMessage}
           openProfile={openProfile}
           report={() => startReport(active)}
@@ -1649,7 +1681,7 @@ function relativeCommentTime(created, now = Date.now()) {
   return `${days} ${days === 1 ? "päivä" : "päivää"} sitten`;
 }
 
-function NoticeDetail({ notice, close, user, requireLogin, addComment, message, openProfile, report, saved, toggleSaved }) {
+function NoticeDetail({ notice, close, user, requireLogin, addComment, editComment, deleteComment, message, openProfile, report, saved, toggleSaved }) {
   const [commentText, setCommentText] = useState(""),
     [imageFile, setImageFile] = useState(null),
     [dmText, setDmText] = useState(""),
@@ -1657,6 +1689,9 @@ function NoticeDetail({ notice, close, user, requireLogin, addComment, message, 
     [shared, setShared] = useState(false),
     [dm, setDm] = useState(false),
     [sending, setSending] = useState(false),
+    [commentBusy, setCommentBusy] = useState(false),
+    [editingCommentId, setEditingCommentId] = useState(null),
+    [editingCommentText, setEditingCommentText] = useState(""),
     [now, setNow] = useState(Date.now()),
     [actionError, setActionError] = useState("");
   useEffect(() => {
@@ -1676,6 +1711,37 @@ function NoticeDetail({ notice, close, user, requireLogin, addComment, message, 
       setActionError(`Kommenttia ei voitu lähettää: ${error.message}`);
     } finally {
       setSending(false);
+    }
+  };
+  const saveEditedComment = async (comment) => {
+    const cleanText = editingCommentText.trim();
+    if (!cleanText && !comment.image) return;
+    setCommentBusy(true);
+    setActionError("");
+    try {
+      await editComment(notice.id, comment.id, cleanText);
+      setEditingCommentId(null);
+      setEditingCommentText("");
+    } catch (error) {
+      setActionError(`Kommenttia ei voitu muokata: ${error.message}`);
+    } finally {
+      setCommentBusy(false);
+    }
+  };
+  const removeOwnComment = async (comment) => {
+    if (!window.confirm("Poistetaanko tämä kommentti pysyvästi?")) return;
+    setCommentBusy(true);
+    setActionError("");
+    try {
+      await deleteComment(notice.id, comment);
+      if (editingCommentId === comment.id) {
+        setEditingCommentId(null);
+        setEditingCommentText("");
+      }
+    } catch (error) {
+      setActionError(`Kommenttia ei voitu poistaa: ${error.message}`);
+    } finally {
+      setCommentBusy(false);
     }
   };
   const shareNotice = async () => {
@@ -1805,11 +1871,71 @@ function NoticeDetail({ notice, close, user, requireLogin, addComment, message, 
                   <span>{c.user?.[0]}</span>
                   <b>{c.user}</b>
                 </button>
-                <time title={new Date(c.created).toLocaleString("fi-FI")}>
-                  {relativeCommentTime(c.created, now)}
-                </time>
+                <div className="commentmeta">
+                  <time title={new Date(c.created).toLocaleString("fi-FI")}>
+                    {relativeCommentTime(c.created, now)}{c.edited ? " · muokattu" : ""}
+                  </time>
+                  {user?.id === c.userId && (
+                    <div className="owncommentactions">
+                      <button
+                        type="button"
+                        aria-label="Muokkaa kommenttia"
+                        title="Muokkaa kommenttia"
+                        disabled={commentBusy}
+                        onClick={() => {
+                          setEditingCommentId(c.id);
+                          setEditingCommentText(c.text || "");
+                        }}
+                      >
+                        <Pencil />
+                      </button>
+                      <button
+                        type="button"
+                        className="deletecomment"
+                        aria-label="Poista kommentti"
+                        title="Poista kommentti"
+                        disabled={commentBusy}
+                        onClick={() => removeOwnComment(c)}
+                      >
+                        <Trash2 />
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
-              {c.text && <p>{c.text}</p>}
+              {editingCommentId === c.id ? (
+                <div className="commenteditor">
+                  <textarea
+                    maxLength={1000}
+                    value={editingCommentText}
+                    onChange={(event) => setEditingCommentText(event.target.value)}
+                    autoFocus
+                  />
+                  <div>
+                    <span>{editingCommentText.length}/1000</span>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => {
+                        setEditingCommentId(null);
+                        setEditingCommentText("");
+                      }}
+                    >
+                      <X /> Peruuta
+                    </button>
+                    <button
+                      type="button"
+                      className="primary"
+                      disabled={commentBusy || (!editingCommentText.trim() && !c.image)}
+                      onClick={() => saveEditedComment(c)}
+                    >
+                      <CheckCircle2 /> Tallenna
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                c.text && <p>{c.text}</p>
+              )}
               {c.image && <img src={c.image} alt="Kommenttiin lisätty kuva" />}
             </div>
           ))}

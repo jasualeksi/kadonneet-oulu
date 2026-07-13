@@ -168,8 +168,24 @@ create table if not exists public.comments (
   body text check (body is null or char_length(body) <= 1000),
   image_url text,
   created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
   check (body is not null or image_url is not null)
 );
+
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'comments'
+      and column_name = 'updated_at'
+  ) then
+    alter table public.comments add column updated_at timestamptz;
+    update public.comments set updated_at = created_at;
+    alter table public.comments alter column updated_at set default now();
+    alter table public.comments alter column updated_at set not null;
+  end if;
+end $$;
 
 create index if not exists comments_notice_id_idx on public.comments (notice_id, created_at);
 create index if not exists comments_user_created_idx on public.comments (user_id, created_at desc);
@@ -179,6 +195,9 @@ create policy "Kommentit näkyvät kaikille" on public.comments for select using
 drop policy if exists "Kirjautunut käyttäjä voi kommentoida" on public.comments;
 create policy "Kirjautunut käyttäjä voi kommentoida" on public.comments
   for insert with check (auth.uid() = user_id);
+drop policy if exists "Kommentoija voi muokata kommenttia" on public.comments;
+create policy "Kommentoija voi muokata kommenttia" on public.comments
+  for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
 drop policy if exists "Kommentoija voi poistaa kommentin" on public.comments;
 create policy "Kommentoija voi poistaa kommentin" on public.comments
   for delete using (auth.uid() = user_id);

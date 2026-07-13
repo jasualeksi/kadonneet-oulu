@@ -33,8 +33,34 @@ export function mapNotice(row) {
     owner: row.owner_id,
     found: row.status === "found",
     foundAt: row.found_at,
+    viewCount: Number(row.view_count) || 0,
     comments: (row.comments || []).map(mapComment).sort((a, b) => a.created - b.created),
   };
+}
+
+let fallbackViewerKey;
+
+function getViewerKey() {
+  const storageKey = "kadonneet-oulu-viewer-id";
+  try {
+    const existing = window.localStorage.getItem(storageKey);
+    if (existing) return existing;
+    const created = crypto.randomUUID();
+    window.localStorage.setItem(storageKey, created);
+    return created;
+  } catch {
+    fallbackViewerKey ||= crypto.randomUUID();
+    return fallbackViewerKey;
+  }
+}
+
+export async function recordNoticeView(noticeId) {
+  const { data, error } = await supabase.rpc("register_notice_view", {
+    p_notice_id: noticeId,
+    p_viewer_key: getViewerKey(),
+  });
+  if (error) throw error;
+  return Number(data) || 0;
 }
 
 async function uploadImage(file, userId, folder) {

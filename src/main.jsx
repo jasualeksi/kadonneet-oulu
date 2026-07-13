@@ -46,6 +46,7 @@ import {
   BookmarkCheck,
   RotateCcw,
   AlertTriangle,
+  Eye,
 } from "lucide-react";
 import "./styles.css";
 import { accountFromUser, supabase, supabaseConfigured } from "./supabase";
@@ -69,6 +70,7 @@ import {
   checkAdminRole,
   fetchReports,
   setReportStatus,
+  recordNoticeView,
 } from "./dataService";
 
 const AREAS = [
@@ -328,6 +330,29 @@ function App() {
     if (window.history.state?.noticeOverlay) window.history.back();
     else go("notices", VIEW_PATHS.notices, true);
   };
+
+  useEffect(() => {
+    if (!active?.id || !supabaseConfigured) return;
+    let current = true;
+    recordNoticeView(active.id)
+      .then((viewCount) => {
+        if (!current) return;
+        setActive((notice) =>
+          notice?.id === active.id ? { ...notice, viewCount } : notice,
+        );
+        setData((notices) =>
+          notices.map((notice) =>
+            notice.id === active.id ? { ...notice, viewCount } : notice,
+          ),
+        );
+      })
+      .catch(() => {
+        // Sivusto toimii myös ennen kuin näyttökertalaskennan SQL on asennettu.
+      });
+    return () => {
+      current = false;
+    };
+  }, [active?.id]);
 
   useEffect(() => {
     const applyCurrentRoute = () => {
@@ -1114,7 +1139,12 @@ function Card({ n, open, remove, markFound, reopenNotice, edit, report, saved, t
         </div>
         <div className="author">
           <span>{n.user?.[0]}</span> Ilmoittaja: <b>{n.user}</b>
-          <MessageCircle /> {n.comments?.length || 0}
+          <span className="cardstat" title={`${n.viewCount || 0} näyttökertaa`}>
+            <Eye /> {n.viewCount || 0}
+          </span>
+          <span className="cardstat" title={`${n.comments?.length || 0} kommenttia`}>
+            <MessageCircle /> {n.comments?.length || 0}
+          </span>
         </div>
         <div className="cardtools">
           <button
@@ -1829,6 +1859,9 @@ function NoticeDetail({ notice, close, user, requireLogin, addComment, editComme
             <h2>{notice.name}</h2>
             <p className="detailmeta">
               <MapPin /> {notice.area} · {notice.date}
+              <span className="detailviews">
+                <Eye /> {notice.viewCount || 0} näyttökertaa
+              </span>
             </p>
             <p>{notice.desc}</p>
             <div className={`reward detailreward ${notice.reward ? "has-reward" : "no-reward"}`}>

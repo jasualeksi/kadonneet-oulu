@@ -39,6 +39,7 @@ import {
   UserPlus,
   ArrowLeft,
   Pencil,
+  Share2,
 } from "lucide-react";
 import "./styles.css";
 import { accountFromUser, supabase, supabaseConfigured } from "./supabase";
@@ -163,6 +164,28 @@ const AREAS = [
   "Ylikiiminki",
 ];
 
+const VIEW_PATHS = {
+  home: "/",
+  notices: "/ilmoitukset",
+  new: "/tee-ilmoitus",
+  mine: "/omat-ilmoitukset",
+  messages: "/viestit",
+  settings: "/asetukset",
+  info: "/ohjeet",
+};
+
+function routeFromPath(pathname) {
+  const path = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
+  const noticeMatch = path.match(/^\/ilmoitukset\/([0-9a-f-]+)$/i);
+  if (noticeMatch) return { view: "notices", noticeId: noticeMatch[1] };
+  const profileMatch = path.match(/^\/kayttajat\/([0-9a-f-]+)$/i);
+  if (profileMatch) return { view: "profile", profileId: profileMatch[1] };
+  const editMatch = path.match(/^\/omat-ilmoitukset\/([0-9a-f-]+)\/muokkaa$/i);
+  if (editMatch) return { view: "edit", editId: editMatch[1] };
+  const view = Object.entries(VIEW_PATHS).find(([, route]) => route === path)?.[0];
+  return { view: view || "home" };
+}
+
 function App() {
   const [data, setData] = useState([]),
     [user, setUser] = useState(null),
@@ -213,11 +236,71 @@ function App() {
       clearInterval(refresh);
     };
   }, [user?.id]);
-  const go = (v) => {
+  const go = (v, customPath = VIEW_PATHS[v] || "/", replace = false) => {
+    window.history[replace ? "replaceState" : "pushState"]({}, "", customPath);
     setView(v);
+    setActive(null);
     setMenu(false);
     scrollTo({ top: 0, behavior: "smooth" });
   };
+  const openNotice = (notice) => {
+    window.history.pushState(
+      { noticeOverlay: true },
+      "",
+      `/ilmoitukset/${notice.id}`,
+    );
+    setActive(notice);
+  };
+  const closeNotice = () => {
+    setActive(null);
+    if (window.history.state?.noticeOverlay) window.history.back();
+    else go("notices", VIEW_PATHS.notices, true);
+  };
+
+  useEffect(() => {
+    const applyCurrentRoute = () => {
+      const route = routeFromPath(window.location.pathname);
+      setView(route.view);
+      setMenu(false);
+      if (route.noticeId) {
+        setActive(data.find((notice) => notice.id === route.noticeId) || null);
+      } else {
+        setActive(null);
+      }
+      if (route.profileId) {
+        setPublicProfile((current) =>
+          current?.id === route.profileId
+            ? current
+            : { id: route.profileId, username: "Käyttäjä" },
+        );
+      }
+      if (route.editId) {
+        setEditingNotice(
+          data.find((notice) => notice.id === route.editId) || null,
+        );
+      }
+      window.scrollTo({ top: 0 });
+    };
+    applyCurrentRoute();
+    window.addEventListener("popstate", applyCurrentRoute);
+    return () => window.removeEventListener("popstate", applyCurrentRoute);
+  }, [data]);
+  useEffect(() => {
+    const titles = {
+      home: "Kadonneet Oulu",
+      notices: "Ilmoitukset – Kadonneet Oulu",
+      new: "Tee ilmoitus – Kadonneet Oulu",
+      edit: "Muokkaa ilmoitusta – Kadonneet Oulu",
+      mine: "Omat ilmoitukset – Kadonneet Oulu",
+      messages: "Viestit – Kadonneet Oulu",
+      settings: "Asetukset – Kadonneet Oulu",
+      profile: "Käyttäjäprofiili – Kadonneet Oulu",
+      info: "Ohjeet – Kadonneet Oulu",
+    };
+    document.title = active?.name
+      ? `${active.name} – Kadonneet Oulu`
+      : titles[view] || "Kadonneet Oulu";
+  }, [view, active?.name]);
   const notify = (t) => {
     setToast(t);
     setTimeout(() => setToast(""), 2800);
@@ -264,7 +347,7 @@ function App() {
   };
   const editNotice = (notice) => {
     setEditingNotice(notice);
-    go("edit");
+    go("edit", `/omat-ilmoitukset/${notice.id}/muokkaa`);
   };
   const remove = async (id) => {
     try {
@@ -308,7 +391,7 @@ function App() {
   const openProfile = (id, username) => {
     setActive(null);
     setPublicProfile({ id, username });
-    go("profile");
+    go("profile", `/kayttajat/${id}`);
   };
   return (
     <div className="app">
@@ -324,9 +407,9 @@ function App() {
       />
       <main>
         {view === "home" && (
-          <HomePage go={go} protectedGo={protectedGo} data={data} open={setActive} />
+          <HomePage go={go} protectedGo={protectedGo} data={data} open={openNotice} />
         )}
-        {view === "notices" && <Notices data={data} open={setActive} />}
+        {view === "notices" && <Notices data={data} open={openNotice} />}
         {view === "new" && <NewNotice onSubmit={add} />}
         {view === "edit" && editingNotice && (
           <NewNotice
@@ -342,7 +425,7 @@ function App() {
         {view === "mine" && (
           <Mine
             data={data.filter((n) => n.owner === user?.id)}
-            open={setActive}
+            open={openNotice}
             remove={remove}
             markFound={markFound}
             edit={editNotice}
@@ -364,7 +447,7 @@ function App() {
           <PublicProfile
             selected={publicProfile}
             notices={data.filter((notice) => notice.owner === publicProfile.id)}
-            openNotice={setActive}
+            openNotice={openNotice}
           />
         )}
         {view === "info" && <Info />}
@@ -383,7 +466,7 @@ function App() {
       {active && (
         <NoticeDetail
           notice={active}
-          close={() => setActive(null)}
+          close={closeNotice}
           user={user}
           requireLogin={() => {
             setActive(null);
@@ -483,6 +566,7 @@ function Header({ user, view, go, protectedGo, setLogin, logout, menu, setMenu }
             </button>
             {accountMenu && (
               <div className="account-dropdown">
+                <button onClick={() => { setAccountMenu(false); go("mine"); }}><ClipboardList /> Omat ilmoitukset</button>
                 <button onClick={() => { setAccountMenu(false); go("settings"); }}><Settings /> Asetukset</button>
                 <button className="logout-option" onClick={() => { setAccountMenu(false); logout(); }}><LogOut /> Kirjaudu ulos</button>
               </div>
@@ -1264,6 +1348,7 @@ function NoticeDetail({ notice, close, user, requireLogin, addComment, message, 
     [imageFile, setImageFile] = useState(null),
     [dmText, setDmText] = useState(""),
     [dmImageFile, setDmImageFile] = useState(null),
+    [shared, setShared] = useState(false),
     [dm, setDm] = useState(false),
     [sending, setSending] = useState(false),
     [now, setNow] = useState(Date.now()),
@@ -1285,6 +1370,24 @@ function NoticeDetail({ notice, close, user, requireLogin, addComment, message, 
       setActionError(`Kommenttia ei voitu lähettää: ${error.message}`);
     } finally {
       setSending(false);
+    }
+  };
+  const shareNotice = async () => {
+    const url = `${window.location.origin}/ilmoitukset/${notice.id}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: notice.name,
+          text: `${notice.name} – ${notice.area}`,
+          url,
+        });
+      } else {
+        await navigator.clipboard.writeText(url);
+      }
+      setShared(true);
+      setTimeout(() => setShared(false), 2500);
+    } catch {
+      // Jakovalikon peruuttaminen ei vaadi virheilmoitusta.
     }
   };
   return (
@@ -1332,6 +1435,9 @@ function NoticeDetail({ notice, close, user, requireLogin, addComment, message, 
                 <Send /> Lähetä yksityisviesti
               </button>
             )}
+            <button className="secondary sharebtn" onClick={shareNotice}>
+              <Share2 /> {shared ? "Linkki kopioitu" : "Jaa ilmoitus"}
+            </button>
           </div>
         </div>
         {dm && (

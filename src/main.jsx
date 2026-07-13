@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Search,
@@ -35,6 +35,7 @@ import {
   CircleHelp,
   ClipboardList,
   UserPlus,
+  ArrowLeft,
 } from "lucide-react";
 import "./styles.css";
 import { accountFromUser, supabase, supabaseConfigured } from "./supabase";
@@ -190,9 +191,22 @@ function App() {
       setMessages([]);
       return;
     }
-    fetchMessages(user.id)
-      .then(setMessages)
-      .catch(() => notify("Viestejä ei voitu ladata"));
+    let current = true;
+    const loadMessages = (showError = false) => {
+      fetchMessages(user.id)
+        .then((loaded) => {
+          if (current) setMessages(loaded);
+        })
+        .catch(() => {
+          if (showError) notify("Viestejä ei voitu ladata");
+        });
+    };
+    loadMessages(true);
+    const refresh = setInterval(() => loadMessages(false), 7000);
+    return () => {
+      current = false;
+      clearInterval(refresh);
+    };
   }, [user?.id]);
   const go = (v) => {
     setView(v);
@@ -300,7 +314,9 @@ function App() {
             protectedGo={protectedGo}
           />
         )}
-        {view === "messages" && <Messages messages={messages} user={user} />}
+        {view === "messages" && (
+          <Messages messages={messages} send={sendPrivateMessage} />
+        )}
         {view === "settings" && (
           <AccountSettings
             user={user}
@@ -1323,27 +1339,142 @@ function Mine({ data, open, remove, markFound, protectedGo }) {
     </section>
   );
 }
-function Messages({ messages }) {
+function Messages({ messages, send }) {
+  const [selectedId, setSelectedId] = useState(null),
+    [draft, setDraft] = useState(""),
+    [sending, setSending] = useState(false),
+    [error, setError] = useState(""),
+    [now, setNow] = useState(Date.now());
+  const messagesEnd = useRef(null);
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const conversations = useMemo(() => {
+    const grouped = new Map();
+    messages.forEach((message) => {
+      if (!grouped.has(message.partnerId)) {
+        grouped.set(message.partnerId, {
+          id: message.partnerId,
+          name: message.partnerName,
+          messages: [],
+        });
+      }
+      grouped.get(message.partnerId).messages.push(message);
+    });
+    return [...grouped.values()]
+      .map((conversation) => ({
+        ...conversation,
+        messages: conversation.messages.sort((a, b) => a.created - b.created),
+      }))
+      .sort(
+        (a, b) =>
+          b.messages[b.messages.length - 1].created -
+          a.messages[a.messages.length - 1].created,
+      );
+  }, [messages]);
+
+  const selected = conversations.find((conversation) => conversation.id === selectedId);
+
+  useEffect(() => {
+    messagesEnd.current?.scrollIntoView({ behavior: "smooth" });
+  }, [selectedId, selected?.messages.length]);
+
+  const reply = async (event) => {
+    event.preventDefault();
+    if (!selected || !draft.trim() || sending) return;
+    setSending(true);
+    setError("");
+    try {
+      await send(selected.id, selected.name, draft);
+      setDraft("");
+    } catch (sendError) {
+      setError(`Viestiä ei voitu lähettää: ${sendError.message}`);
+    } finally {
+      setSending(false);
+    }
+  };
+
   return (
-    <section className="page narrow">
+    <section className="page messagespage">
       <div className="pagehead">
         <span className="kicker">YKSITYISVIESTIT</span>
         <h1>Viestit</h1>
-        <p>Ilmoituksiin liittyvät yksityiset keskustelut näkyvät täällä.</p>
+        <p>Keskustele yksityisesti ilmoituksiin liittyvistä havainnoista.</p>
       </div>
       {messages.length ? (
-        messages.map((m) => (
-          <div className="messageitem" key={m.id}>
-            <span>
-              <UserRound />
-            </span>
-            <div>
-              <b>{m.incoming ? `Lähettäjä: ${m.from}` : `Vastaanottaja: ${m.to}`}</b>
-              <p>{m.text}</p>
-              <small>{m.date}</small>
-            </div>
+        <div className={`chatlayout ${selected ? "conversation-open" : ""}`}>
+          <aside className="conversationlist">
+            <h2>Keskustelut</h2>
+            {conversations.map((conversation) => {
+              const latest = conversation.messages[conversation.messages.length - 1];
+              return (
+                <button
+                  key={conversation.id}
+                  className={selectedId === conversation.id ? "active" : ""}
+                  onClick={() => {
+                    setSelectedId(conversation.id);
+                    setError("");
+                  }}
+                >
+                  <span className="chatavatar">{conversation.name?.[0]}</span>
+                  <span className="conversationpreview">
+                    <strong>{conversation.name}</strong>
+                    <span>{latest.incoming ? "" : "Sinä: "}{latest.text}</span>
+                  </span>
+                  <time>{relativeCommentTime(latest.created, now)}</time>
+                </button>
+              );
+            })}
+          </aside>
+          <div className="chatpanel">
+            {selected ? (
+              <>
+                <div className="chatheader">
+                  <button className="chatback" onClick={() => setSelectedId(null)}>
+                    <ArrowLeft /> <span>Takaisin</span>
+                  </button>
+                  <span className="chatavatar">{selected.name?.[0]}</span>
+                  <strong>{selected.name}</strong>
+                </div>
+                <div className="chatmessages">
+                  {selected.messages.map((message) => (
+                    <div
+                      key={message.id}
+                      className={`chatbubble ${message.incoming ? "incoming" : "outgoing"}`}
+                    >
+                      <p>{message.text}</p>
+                      <time title={new Date(message.created).toLocaleString("fi-FI")}>
+                        {relativeCommentTime(message.created, now)}
+                      </time>
+                    </div>
+                  ))}
+                  <div ref={messagesEnd} />
+                </div>
+                <form className="chatcomposer" onSubmit={reply}>
+                  <textarea
+                    value={draft}
+                    onChange={(event) => setDraft(event.target.value)}
+                    placeholder="Kirjoita viesti"
+                    maxLength={2000}
+                  />
+                  <button className="primary" disabled={sending || !draft.trim()}>
+                    <Send /> Lähetä
+                  </button>
+                </form>
+                {error && <div className="autherror chaterror">{error}</div>}
+              </>
+            ) : (
+              <div className="chatplaceholder">
+                <MessageCircle />
+                <h2>Valitse keskustelu</h2>
+                <p>Avaa keskustelu vasemmalla olevasta listasta.</p>
+              </div>
+            )}
           </div>
-        ))
+        </div>
       ) : (
         <div className="empty">
           <Inbox />

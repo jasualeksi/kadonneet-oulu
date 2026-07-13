@@ -136,10 +136,15 @@ export async function fetchMessages(userId) {
   if (error) throw error;
   return (data || []).map((row) => ({
     id: row.id,
+    senderId: row.sender_id,
+    recipientId: row.recipient_id,
+    partnerId: row.sender_id === userId ? row.recipient_id : row.sender_id,
+    partnerName: row.sender_id === userId ? row.recipient_name : row.sender_name,
     to: row.sender_id === userId ? row.recipient_name : row.sender_name,
     from: row.sender_name,
     text: row.body,
     date: formatDate(row.created_at),
+    created: new Date(row.created_at).getTime(),
     incoming: row.recipient_id === userId,
   }));
 }
@@ -159,10 +164,15 @@ export async function createMessage(recipientId, recipientName, text, user) {
   if (error) throw error;
   return {
     id: data.id,
+    senderId: user.id,
+    recipientId,
+    partnerId: recipientId,
+    partnerName: recipientName,
     to: recipientName,
     from: user.username,
     text: data.body,
     date: formatDate(data.created_at),
+    created: new Date(data.created_at).getTime(),
     incoming: false,
   };
 }

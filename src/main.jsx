@@ -26,6 +26,9 @@ import {
   LayoutList,
   Phone,
   Trash2,
+  Bike,
+  Package,
+  Gift,
 } from "lucide-react";
 import "./styles.css";
 
@@ -280,8 +283,8 @@ function HomePage({ go, protectedGo, count }) {
           <span>Julkaistua ilmoitusta</span>
         </div>
         <div>
-          <b>2</b>
-          <span>Ilmoitustyyppiä: ihmiset ja eläimet</span>
+          <b>4</b>
+          <span>Ihmiset, eläimet, menopelit ja tavarat</span>
         </div>
         <div>
           <b>14 vrk</b>
@@ -347,7 +350,7 @@ function Notices({ data, open }) {
           />
         </div>
         <div className="tabs">
-          {["Kaikki", "Eläin", "Ihminen"].map((c) => (
+          {["Kaikki", "Eläin", "Ihminen", "Menopeli", "Tavara"].map((c) => (
             <button
               key={c}
               className={category === c ? "active" : ""}
@@ -423,6 +426,14 @@ function Empty() {
     </div>
   );
 }
+
+function TypeIcon({ type }) {
+  if (type === "Eläin") return <PawPrint />;
+  if (type === "Menopeli") return <Bike />;
+  if (type === "Tavara") return <Package />;
+  return <UserRound />;
+}
+
 function Card({ n, open, remove }) {
   return (
     <article className={`card ${n.found ? "found" : ""}`} onClick={open}>
@@ -431,7 +442,7 @@ function Card({ n, open, remove }) {
           <img src={n.preview} />
         ) : (
           <div className="noimage">
-            {n.type === "Eläin" ? <PawPrint /> : <UserRound />}
+            <TypeIcon type={n.type} />
             <span>Ei kuvaa</span>
           </div>
         )}
@@ -455,6 +466,11 @@ function Card({ n, open, remove }) {
           </span>
         </div>
         <p>{n.desc}</p>
+        {n.reward && (
+          <div className="reward">
+            <Gift /> Löytöpalkkio: <b>{n.reward}</b>
+          </div>
+        )}
         <div className="author">
           <span>{n.user?.[0]}</span> Ilmoittaja: <b>{n.user}</b>
           <MessageCircle /> {n.comments?.length || 0}
@@ -483,6 +499,7 @@ function NewNotice({ onSubmit }) {
     desc: "",
     phone: "",
     contactEmail: "",
+    reward: "",
     preview: "",
   });
   const submit = (e) => {
@@ -502,19 +519,22 @@ function NewNotice({ onSubmit }) {
       <form className="noticeform" onSubmit={submit}>
         <FormBlock no="1" title="Kenestä ilmoitat?">
           <div className="typechoice">
-            {["Eläin", "Ihminen"].map((t) => (
+            {["Eläin", "Ihminen", "Menopeli", "Tavara"].map((t) => (
               <button
                 key={t}
                 type="button"
                 onClick={() => setF({ ...f, type: t })}
                 className={f.type === t ? "selected" : ""}
               >
-                {t === "Eläin" ? <PawPrint /> : <UserRound />}
+                <TypeIcon type={t} />
                 <b>{t}</b>
                 <span>
-                  {t === "Eläin"
-                    ? "Koira, kissa tai muu eläin"
-                    : "Kadonnut henkilö"}
+                  {{
+                    Eläin: "Koira, kissa tai muu eläin",
+                    Ihminen: "Kadonnut henkilö",
+                    Menopeli: "Pyörä, mopo tai muu menopeli",
+                    Tavara: "Kadonnut esine tai muu tavara",
+                  }[t]}
                 </span>
               </button>
             ))}
@@ -552,6 +572,17 @@ function NewNotice({ onSubmit }) {
                 onChange={(e) => setF({ ...f, desc: e.target.value })}
               />
               <small>{f.desc.length}/600 merkkiä</small>
+            </label>
+            <label className="full">
+              Mahdollinen löytöpalkkio
+              <div className="inputicon">
+                <Gift />
+                <input
+                  value={f.reward}
+                  onChange={(e) => setF({ ...f, reward: e.target.value })}
+                  placeholder="Esim. 50 € (vapaaehtoinen)"
+                />
+              </div>
             </label>
           </div>
         </FormBlock>
@@ -755,6 +786,11 @@ function NoticeDetail({ notice, close, user, requireLogin, update, message }) {
               <MapPin /> {notice.area} · {notice.date}
             </p>
             <p>{notice.desc}</p>
+            {notice.reward && (
+              <div className="reward detailreward">
+                <Gift /> Löytöpalkkio: <b>{notice.reward}</b>
+              </div>
+            )}
             <div className="contacts">
               <b>Yhteystiedot</b>
               {notice.phone && (

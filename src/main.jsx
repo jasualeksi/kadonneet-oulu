@@ -16,6 +16,8 @@ import {
   Mail,
   Lock,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   SlidersHorizontal,
   HeartHandshake,
   Home,
@@ -301,7 +303,7 @@ function App() {
       />
       <main>
         {view === "home" && (
-          <HomePage go={go} protectedGo={protectedGo} data={data} />
+          <HomePage go={go} protectedGo={protectedGo} data={data} open={setActive} />
         )}
         {view === "notices" && <Notices data={data} open={setActive} />}
         {view === "new" && <NewNotice onSubmit={add} />}
@@ -478,8 +480,33 @@ function Header({ user, view, go, protectedGo, setLogin, logout, menu, setMenu }
   );
 }
 
-function HomePage({ go, protectedGo, data }) {
+function HomePage({ go, protectedGo, data, open }) {
   const count = data.length;
+  const rotatingNotices = useMemo(
+    () => [...data].sort((a, b) => b.created - a.created).slice(0, 8),
+    [data],
+  );
+  const [slide, setSlide] = useState(0),
+    [carouselPaused, setCarouselPaused] = useState(false),
+    [touchStart, setTouchStart] = useState(null);
+  useEffect(() => {
+    if (rotatingNotices.length < 2 || carouselPaused) return;
+    const timer = setInterval(
+      () => setSlide((current) => (current + 1) % rotatingNotices.length),
+      5500,
+    );
+    return () => clearInterval(timer);
+  }, [rotatingNotices.length, carouselPaused]);
+  useEffect(() => {
+    if (slide >= rotatingNotices.length) setSlide(0);
+  }, [rotatingNotices.length, slide]);
+  const changeSlide = (direction) => {
+    if (rotatingNotices.length < 2) return;
+    setSlide(
+      (current) =>
+        (current + direction + rotatingNotices.length) % rotatingNotices.length,
+    );
+  };
   const latest = data.length
     ? [...data].sort((a, b) => b.created - a.created)[0].date
     : "–";
@@ -533,20 +560,73 @@ function HomePage({ go, protectedGo, data }) {
           <span>Löytyneeksi merkittyä</span>
         </div>
       </section>
-      <section className="latest emptyhome">
-        <span className="kicker">ILMOITUKSET</span>
-        <h2>
-          {count ? "Katso uusimmat ilmoitukset" : "Ei julkaistuja ilmoituksia"}
-        </h2>
-        <p>
-          {count
-            ? "Avaa ilmoituslista nähdäksesi kaikki ilmoitukset."
-            : "Ilmoituksia ei ole vielä julkaistu."}
-        </p>
-        <button className="secondary" onClick={() => go("notices")}>
-          Avaa ilmoitukset <ArrowRight />
-        </button>
-      </section>
+      {count ? (
+        <section className="latest homenotices">
+          <div className="homecarouselhead">
+            <div>
+              <span className="kicker">UUSIMMAT ILMOITUKSET</span>
+              <h2>Ajankohtaiset ilmoitukset</h2>
+              <p>Selaa uusimpia ilmoituksia tai avaa ilmoitus nähdäksesi lisätiedot.</p>
+            </div>
+            <button className="text-button" onClick={() => go("notices")}>
+              Näytä kaikki <ArrowRight />
+            </button>
+          </div>
+          <div
+            className="homecarousel"
+            onMouseEnter={() => setCarouselPaused(true)}
+            onMouseLeave={() => setCarouselPaused(false)}
+            onTouchStart={(event) => setTouchStart(event.touches[0].clientX)}
+            onTouchEnd={(event) => {
+              if (touchStart === null) return;
+              const distance = event.changedTouches[0].clientX - touchStart;
+              if (Math.abs(distance) > 45) changeSlide(distance < 0 ? 1 : -1);
+              setTouchStart(null);
+            }}
+          >
+            <button
+              className="carouselarrow previous"
+              onClick={() => changeSlide(-1)}
+              aria-label="Edellinen ilmoitus"
+              disabled={rotatingNotices.length < 2}
+            >
+              <ChevronLeft />
+            </button>
+            <div className="carouselstage" key={rotatingNotices[slide]?.id}>
+              <Card n={rotatingNotices[slide]} open={() => open(rotatingNotices[slide])} />
+            </div>
+            <button
+              className="carouselarrow next"
+              onClick={() => changeSlide(1)}
+              aria-label="Seuraava ilmoitus"
+              disabled={rotatingNotices.length < 2}
+            >
+              <ChevronRight />
+            </button>
+          </div>
+          {rotatingNotices.length > 1 && (
+            <div className="carouseldots" aria-label="Valitse ilmoitus">
+              {rotatingNotices.map((notice, index) => (
+                <button
+                  key={notice.id}
+                  className={index === slide ? "active" : ""}
+                  onClick={() => setSlide(index)}
+                  aria-label={`Ilmoitus ${index + 1}`}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      ) : (
+        <section className="latest emptyhome">
+          <span className="kicker">ILMOITUKSET</span>
+          <h2>Ei julkaistuja ilmoituksia</h2>
+          <p>Ilmoituksia ei ole vielä julkaistu.</p>
+          <button className="secondary" onClick={() => go("notices")}>
+            Avaa ilmoitukset <ArrowRight />
+          </button>
+        </section>
+      )}
     </>
   );
 }

@@ -382,11 +382,14 @@ function Header({ user, view, go, protectedGo, setLogin, logout, menu, setMenu }
     const closeWithEscape = (event) => {
       if (event.key === "Escape") setAccountMenu(false);
     };
-    document.addEventListener("pointerdown", closeOutside);
+    const closeWhenPageLosesFocus = () => setAccountMenu(false);
+    document.addEventListener("click", closeOutside, true);
     document.addEventListener("keydown", closeWithEscape);
+    window.addEventListener("blur", closeWhenPageLosesFocus);
     return () => {
-      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("click", closeOutside, true);
       document.removeEventListener("keydown", closeWithEscape);
+      window.removeEventListener("blur", closeWhenPageLosesFocus);
     };
   }, [accountMenu]);
 

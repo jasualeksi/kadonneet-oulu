@@ -87,7 +87,7 @@ create table if not exists public.notices (
   description text not null check (char_length(description) between 5 and 600),
   phone text,
   contact_email text not null,
-  reward text,
+  reward integer check (reward is null or reward between 1 and 100000),
   image_url text,
   status text not null default 'open' check (status in ('open', 'found')),
   found_at timestamptz,
@@ -97,6 +97,30 @@ create table if not exists public.notices (
 
 create index if not exists notices_created_at_idx on public.notices (created_at desc);
 create index if not exists notices_owner_id_idx on public.notices (owner_id);
+
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'notices'
+      and column_name = 'reward'
+      and data_type <> 'integer'
+  ) then
+    alter table public.notices
+      alter column reward type integer
+      using case
+        when regexp_replace(coalesce(reward, ''), '[^0-9]', '', 'g') = '' then null
+        else regexp_replace(reward, '[^0-9]', '', 'g')::integer
+      end;
+  end if;
+end $$;
+
+alter table public.notices drop constraint if exists notices_reward_range;
+alter table public.notices add constraint notices_reward_range
+  check (reward is null or reward between 1 and 100000);
+
 alter table public.notices enable row level security;
 
 drop policy if exists "Ilmoitukset näkyvät kaikille" on public.notices;

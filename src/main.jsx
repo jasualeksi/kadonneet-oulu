@@ -28,7 +28,7 @@ import {
   Trash2,
   Bike,
   Package,
-  Gift,
+  Euro,
   Settings,
   LogOut,
   ShieldCheck,
@@ -639,11 +639,10 @@ function Card({ n, open, remove, markFound }) {
           </span>
         </div>
         <p>{n.desc}</p>
-        {n.reward && (
-          <div className="reward">
-            <Gift /> Löytöpalkkio: <b>{n.reward}</b>
-          </div>
-        )}
+        <div className={`reward ${n.reward ? "has-reward" : "no-reward"}`}>
+          <span><Euro /> Löytöpalkkio</span>
+          <b>{n.reward ? `${Number(n.reward).toLocaleString("fi-FI")} €` : "—"}</b>
+        </div>
         <div className="author">
           <span>{n.user?.[0]}</span> Ilmoittaja: <b>{n.user}</b>
           <MessageCircle /> {n.comments?.length || 0}
@@ -772,13 +771,18 @@ function NewNotice({ onSubmit }) {
               <small>{f.desc.length}/600 merkkiä</small>
             </label>
             <label className="full">
-              Mahdollinen löytöpalkkio
+              Löytöpalkkio euroina
               <div className="inputicon">
-                <Gift />
+                <Euro />
                 <input
+                  type="number"
+                  min="1"
+                  max="100000"
+                  step="1"
+                  inputMode="numeric"
                   value={f.reward}
                   onChange={(e) => setF({ ...f, reward: e.target.value })}
-                  placeholder="Esim. 50 € (vapaaehtoinen)"
+                  placeholder="Esim. 50 (vapaaehtoinen)"
                 />
               </div>
             </label>
@@ -1079,11 +1083,10 @@ function NoticeDetail({ notice, close, user, requireLogin, addComment, message }
               <MapPin /> {notice.area} · {notice.date}
             </p>
             <p>{notice.desc}</p>
-            {notice.reward && (
-              <div className="reward detailreward">
-                <Gift /> Löytöpalkkio: <b>{notice.reward}</b>
-              </div>
-            )}
+            <div className={`reward detailreward ${notice.reward ? "has-reward" : "no-reward"}`}>
+              <span><Euro /> Löytöpalkkio</span>
+              <b>{notice.reward ? `${Number(notice.reward).toLocaleString("fi-FI")} €` : "—"}</b>
+            </div>
             <div className="contacts">
               <b>Ilmoittajan yhteystiedot</b>
               {notice.phone && (

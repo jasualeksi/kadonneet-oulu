@@ -76,7 +76,7 @@ export async function createNotice(form, user) {
       description: form.desc.trim(),
       phone: form.phone.trim() || null,
       contact_email: form.contactEmail.trim(),
-      reward: form.reward.trim() || null,
+      reward: form.reward ? Number(form.reward) : null,
       image_url: uploadedImage?.url || null,
     })
     .select("*, comments(*)")

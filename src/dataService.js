@@ -99,6 +99,42 @@ export async function createNotice(form, user) {
   return mapNotice(data);
 }
 
+export async function updateNotice(id, form, userId) {
+  const uploadedImage = await uploadImage(form.imageFile, userId, "notices");
+  const noticeValues = {
+    type: form.type,
+    title: form.name.trim(),
+    area: form.area,
+    description: form.desc.trim(),
+    phone: form.phone.trim() || null,
+    contact_email: form.contactEmail.trim(),
+    reward: form.reward ? Number(form.reward) : null,
+    ...(uploadedImage ? { image_url: uploadedImage.url } : {}),
+  };
+  let { data, error } = await supabase
+    .from("notices")
+    .update(noticeValues)
+    .eq("id", id)
+    .eq("owner_id", userId)
+    .select("*, comments(*)")
+    .single();
+  if (error && form.type === "Ajoneuvo") {
+    ({ data, error } = await supabase
+      .from("notices")
+      .update({ ...noticeValues, type: "Menopeli" })
+      .eq("id", id)
+      .eq("owner_id", userId)
+      .select("*, comments(*)")
+      .single());
+  }
+  if (error) {
+    if (uploadedImage)
+      await supabase.storage.from("uploads").remove([uploadedImage.path]);
+    throw error;
+  }
+  return mapNotice(data);
+}
+
 export async function removeNotice(id) {
   const { error } = await supabase.from("notices").delete().eq("id", id);
   if (error) throw error;

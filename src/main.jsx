@@ -38,6 +38,7 @@ import {
   ClipboardList,
   UserPlus,
   ArrowLeft,
+  Pencil,
 } from "lucide-react";
 import "./styles.css";
 import { accountFromUser, supabase, supabaseConfigured } from "./supabase";
@@ -46,6 +47,7 @@ import {
   createComment,
   createMessage,
   createNotice,
+  updateNotice,
   fetchMessages,
   fetchNotices,
   removeNotice,
@@ -171,6 +173,7 @@ function App() {
     [toast, setToast] = useState(""),
     [messages, setMessages] = useState([]),
     [active, setActive] = useState(null),
+    [editingNotice, setEditingNotice] = useState(null),
     [publicProfile, setPublicProfile] = useState(null);
   useEffect(() => {
     if (!supabase) return;
@@ -245,6 +248,24 @@ function App() {
       notify(`Ilmoituksen julkaisu epäonnistui: ${error.message}`);
     }
   };
+  const saveNoticeChanges = async (form) => {
+    try {
+      const updated = await updateNotice(editingNotice.id, form, user.id);
+      setData((current) =>
+        current.map((notice) => (notice.id === updated.id ? updated : notice)),
+      );
+      setEditingNotice(null);
+      notify("Ilmoituksen muutokset tallennettiin");
+      go("mine");
+    } catch (error) {
+      notify(`Muutoksia ei voitu tallentaa: ${error.message}`);
+      throw error;
+    }
+  };
+  const editNotice = (notice) => {
+    setEditingNotice(notice);
+    go("edit");
+  };
   const remove = async (id) => {
     try {
       await removeNotice(id);
@@ -307,12 +328,24 @@ function App() {
         )}
         {view === "notices" && <Notices data={data} open={setActive} />}
         {view === "new" && <NewNotice onSubmit={add} />}
+        {view === "edit" && editingNotice && (
+          <NewNotice
+            onSubmit={saveNoticeChanges}
+            initialNotice={editingNotice}
+            editing
+            onCancel={() => {
+              setEditingNotice(null);
+              go("mine");
+            }}
+          />
+        )}
         {view === "mine" && (
           <Mine
             data={data.filter((n) => n.owner === user?.id)}
             open={setActive}
             remove={remove}
             markFound={markFound}
+            edit={editNotice}
             protectedGo={protectedGo}
           />
         )}
@@ -756,7 +789,7 @@ function TypeIcon({ type }) {
   return <UserRound />;
 }
 
-function Card({ n, open, remove, markFound }) {
+function Card({ n, open, remove, markFound, edit }) {
   return (
     <article className={`card ${n.found ? "found" : ""}`} onClick={open}>
       <div className="photo">
@@ -807,6 +840,17 @@ function Card({ n, open, remove, markFound }) {
             <CheckCircle2 /> Merkitse löytyneeksi
           </button>
         )}
+        {edit && (
+          <button
+            className="editbtn"
+            onClick={(e) => {
+              e.stopPropagation();
+              edit(n);
+            }}
+          >
+            <Pencil /> Muokkaa ilmoitusta
+          </button>
+        )}
         {remove && (
           <button
             className="deletebtn"
@@ -823,33 +867,37 @@ function Card({ n, open, remove, markFound }) {
   );
 }
 
-function NewNotice({ onSubmit }) {
-  const [f, setF] = useState({
-    type: "Eläin",
-    name: "",
-    area: "",
-    desc: "",
-    phone: "",
-    contactEmail: "",
-    reward: "",
-    preview: "",
+function NewNotice({ onSubmit, initialNotice = null, editing = false, onCancel }) {
+  const [f, setF] = useState(() => ({
+    type: initialNotice?.type || "Eläin",
+    name: initialNotice?.name || "",
+    area: initialNotice?.area || "",
+    desc: initialNotice?.desc || "",
+    phone: initialNotice?.phone || "",
+    contactEmail: initialNotice?.contactEmail || "",
+    reward: initialNotice?.reward || "",
+    preview: initialNotice?.preview || "",
     imageFile: null,
-  });
+  }));
   const [submitting, setSubmitting] = useState(false);
   const submit = async (e) => {
     e.preventDefault();
     setSubmitting(true);
-    await onSubmit(f);
-    setSubmitting(false);
+    try {
+      await onSubmit(f);
+    } finally {
+      setSubmitting(false);
+    }
   };
   return (
     <section className="page narrow">
       <div className="pagehead">
-        <span className="kicker">UUSI ILMOITUS</span>
-        <h1>Ilmoita kadonneesta</h1>
+        <span className="kicker">{editing ? "MUOKKAA ILMOITUSTA" : "UUSI ILMOITUS"}</span>
+        <h1>{editing ? "Muokkaa ilmoitusta" : "Ilmoita kadonneesta"}</h1>
         <p>
-          Täytä tiedot huolellisesti. Yhteystietoja käytetään havaintojen
-          ilmoittamiseen.
+          {editing
+            ? "Tarkista muutokset ennen tallentamista. Alkuperäinen julkaisuaika säilyy ennallaan."
+            : "Täytä tiedot huolellisesti. Yhteystietoja käytetään havaintojen ilmoittamiseen."}
         </p>
       </div>
       <form className="noticeform" onSubmit={submit}>
@@ -995,12 +1043,25 @@ function NewNotice({ onSubmit }) {
           </label>
         </FormBlock>
         <div className="formactions">
+          {editing && (
+            <button type="button" className="secondary" onClick={onCancel}>
+              Peruuta
+            </button>
+          )}
           <button className="primary" disabled={submitting}>
-            {submitting ? "Julkaistaan…" : "Julkaise ilmoitus"} <ArrowRight />
+            {submitting
+              ? editing
+                ? "Tallennetaan…"
+                : "Julkaistaan…"
+              : editing
+                ? "Tallenna muutokset"
+                : "Julkaise ilmoitus"} <ArrowRight />
           </button>
         </div>
         <p className="expiry">
-          <Clock3 /> Ilmoitus poistuu automaattisesti 14 vuorokauden kuluttua.
+          <Clock3 /> {editing
+            ? "Muokkaaminen ei muuta julkaisuaikaa tai voimassaolon päättymistä."
+            : "Ilmoitus poistuu automaattisesti 14 vuorokauden kuluttua."}
         </p>
       </form>
     </section>
@@ -1421,7 +1482,7 @@ function PublicProfile({ selected, notices, openNotice }) {
   );
 }
 
-function Mine({ data, open, remove, markFound, protectedGo }) {
+function Mine({ data, open, remove, markFound, edit, protectedGo }) {
   return (
     <section className="page">
       <div className="pagehead">
@@ -1443,6 +1504,7 @@ function Mine({ data, open, remove, markFound, protectedGo }) {
               open={() => open(n)}
               remove={remove}
               markFound={markFound}
+              edit={edit}
             />
           ))}
         </div>

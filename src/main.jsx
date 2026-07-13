@@ -46,7 +46,6 @@ import {
   BookmarkCheck,
   RotateCcw,
   AlertTriangle,
-  Eye,
 } from "lucide-react";
 import "./styles.css";
 import { accountFromUser, supabase, supabaseConfigured } from "./supabase";
@@ -70,7 +69,6 @@ import {
   checkAdminRole,
   fetchReports,
   setReportStatus,
-  recordNoticeView,
 } from "./dataService";
 
 const AREAS = [
@@ -264,6 +262,13 @@ function App() {
     [isAdmin, setIsAdmin] = useState(false),
     [reportTarget, setReportTarget] = useState(null);
   useEffect(() => {
+    try {
+      window.localStorage.removeItem("kadonneet-oulu-viewer-id");
+    } catch {
+      // Tallennustila voi olla selaimen asetuksissa estetty.
+    }
+  }, []);
+  useEffect(() => {
     if (!supabase) return;
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(accountFromUser(session?.user));
@@ -330,29 +335,6 @@ function App() {
     if (window.history.state?.noticeOverlay) window.history.back();
     else go("notices", VIEW_PATHS.notices, true);
   };
-
-  useEffect(() => {
-    if (!active?.id || !supabaseConfigured) return;
-    let current = true;
-    recordNoticeView(active.id)
-      .then((viewCount) => {
-        if (!current) return;
-        setActive((notice) =>
-          notice?.id === active.id ? { ...notice, viewCount } : notice,
-        );
-        setData((notices) =>
-          notices.map((notice) =>
-            notice.id === active.id ? { ...notice, viewCount } : notice,
-          ),
-        );
-      })
-      .catch(() => {
-        // Sivusto toimii myös ennen kuin näyttökertalaskennan SQL on asennettu.
-      });
-    return () => {
-      current = false;
-    };
-  }, [active?.id]);
 
   useEffect(() => {
     const applyCurrentRoute = () => {
@@ -1139,12 +1121,7 @@ function Card({ n, open, remove, markFound, reopenNotice, edit, report, saved, t
         </div>
         <div className="author">
           <span>{n.user?.[0]}</span> Ilmoittaja: <b>{n.user}</b>
-          <span className="cardstat" title={`${n.viewCount || 0} näyttökertaa`}>
-            <Eye /> {n.viewCount || 0}
-          </span>
-          <span className="cardstat" title={`${n.comments?.length || 0} kommenttia`}>
-            <MessageCircle /> {n.comments?.length || 0}
-          </span>
+          <MessageCircle /> {n.comments?.length || 0}
         </div>
         <div className="cardtools">
           <button
@@ -1261,6 +1238,9 @@ function NewNotice({ onSubmit, initialNotice = null, editing = false, onCancel }
     reward: initialNotice?.reward || "",
     preview: initialNotice?.preview || "",
     imageFile: null,
+    humanPoliceConfirmed: false,
+    humanRightsConfirmed: false,
+    humanPrivacyConfirmed: false,
   }));
   const [submitting, setSubmitting] = useState(false);
   const submit = async (e) => {
@@ -1307,6 +1287,56 @@ function NewNotice({ onSubmit, initialNotice = null, editing = false, onCancel }
             ))}
           </div>
         </FormBlock>
+        {f.type === "Ihminen" && (
+          <div className="humanrules" role="region" aria-labelledby="humanrules-title">
+            <div className="humanrules-title">
+              <AlertTriangle />
+              <div>
+                <h2 id="humanrules-title">Ennen ihmistä koskevan ilmoituksen julkaisemista</h2>
+                <p>Kadonneet Oulu ei ole viranomaispalvelu.</p>
+              </div>
+            </div>
+            <div className="humanemergency">
+              <b>Onko henkilö hengenvaarassa tai kyvytön huolehtimaan itsestään?</b>
+              <span>Soita heti hätänumeroon <a href="tel:112">112</a>. Tämä koskee erityisesti lapsia, vanhuksia ja sairaita henkilöitä.</span>
+            </div>
+            <p>
+              Tee katoamisilmoitus ensin poliisille. Katso poliisin ohjeet: {" "}
+              <a href="https://poliisi.fi/katoamisilmoituksen-tekeminen" target="_blank" rel="noreferrer">
+                Katoamisilmoituksen tekeminen
+              </a>.
+            </p>
+            <div className="humanchecklist">
+              <label>
+                <input
+                  type="checkbox"
+                  required
+                  checked={f.humanPoliceConfirmed}
+                  onChange={(e) => setF({ ...f, humanPoliceConfirmed: e.target.checked })}
+                />
+                <span>Olen tehnyt katoamisilmoituksen poliisille. Hätätilanteessa olen soittanut numeroon 112.</span>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  required
+                  checked={f.humanRightsConfirmed}
+                  onChange={(e) => setF({ ...f, humanRightsConfirmed: e.target.checked })}
+                />
+                <span>Minulla on oikeus julkaista nämä tiedot ja kuva sekä kaikki tarvittavat suostumukset.</span>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  required
+                  checked={f.humanPrivacyConfirmed}
+                  onChange={(e) => setF({ ...f, humanPrivacyConfirmed: e.target.checked })}
+                />
+                <span>En julkaise henkilötunnusta, terveystietoja, tarkkaa kotiosoitetta tai muita tarpeettomia arkaluonteisia tietoja.</span>
+              </label>
+            </div>
+          </div>
+        )}
         <FormBlock no="2" title="Ilmoituksen tiedot">
           <div className="fieldgrid">
             <label>
@@ -1859,9 +1889,6 @@ function NoticeDetail({ notice, close, user, requireLogin, addComment, editComme
             <h2>{notice.name}</h2>
             <p className="detailmeta">
               <MapPin /> {notice.area} · {notice.date}
-              <span className="detailviews">
-                <Eye /> {notice.viewCount || 0} näyttökertaa
-              </span>
             </p>
             <p>{notice.desc}</p>
             <div className={`reward detailreward ${notice.reward ? "has-reward" : "no-reward"}`}>

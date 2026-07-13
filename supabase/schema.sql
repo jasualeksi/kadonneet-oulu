@@ -119,10 +119,19 @@ create index if not exists notices_created_at_idx on public.notices (created_at 
 create index if not exists notices_owner_id_idx on public.notices (owner_id);
 create index if not exists notices_owner_created_idx on public.notices (owner_id, created_at desc);
 
-alter table public.notices add column if not exists view_count integer not null default 0;
-alter table public.notices drop constraint if exists notices_view_count_nonnegative;
-alter table public.notices add constraint notices_view_count_nonnegative
-  check (view_count >= 0);
+-- Näyttökertalaskuri poistettiin, jotta anonyymejä kävijöitä ei yksilöidä selaintunnisteella.
+drop function if exists public.register_notice_view(uuid, text);
+drop table if exists public.notice_views;
+alter table public.notices drop column if exists view_count;
+
+alter table public.notices add column if not exists human_police_confirmed boolean not null default false;
+alter table public.notices add column if not exists human_rights_confirmed boolean not null default false;
+alter table public.notices add column if not exists human_privacy_confirmed boolean not null default false;
+alter table public.notices drop constraint if exists notices_human_safety_confirmed;
+alter table public.notices add constraint notices_human_safety_confirmed check (
+  type <> 'Ihminen'
+  or (human_police_confirmed and human_rights_confirmed and human_privacy_confirmed)
+) not valid;
 
 do $$
 begin
@@ -164,75 +173,6 @@ create policy "Omistaja voi päivittää ilmoituksen" on public.notices
 drop policy if exists "Omistaja voi poistaa ilmoituksen" on public.notices;
 create policy "Omistaja voi poistaa ilmoituksen" on public.notices
   for delete using (auth.uid() = owner_id);
-
--- Yksi näyttökerta käyttäjätiliä tai anonyymin kävijän selainta kohden.
--- Taulun sisältö ei ole asiakkaiden luettavissa; laskuri päivitetään vain RPC-funktiolla.
-create table if not exists public.notice_views (
-  notice_id uuid not null references public.notices(id) on delete cascade,
-  viewer_key text not null,
-  created_at timestamptz not null default now(),
-  primary key (notice_id, viewer_key),
-  check (char_length(viewer_key) between 6 and 80)
-);
-create index if not exists notice_views_created_at_idx
-  on public.notice_views (created_at desc);
-alter table public.notice_views enable row level security;
-revoke all on table public.notice_views from anon, authenticated;
-
-create or replace function public.register_notice_view(
-  p_notice_id uuid,
-  p_viewer_key text
-)
-returns integer
-language plpgsql
-security definer
-set search_path = ''
-as $$
-declare
-  identity_key text;
-  inserted_count integer;
-  current_count integer;
-begin
-  if p_viewer_key is null
-     or char_length(p_viewer_key) < 6
-     or char_length(p_viewer_key) > 80 then
-    raise exception 'Virheellinen katselutunniste.' using errcode = '22023';
-  end if;
-
-  select view_count into current_count
-  from public.notices
-  where id = p_notice_id
-    and expires_at > now()
-    and (found_at is null or found_at > now() - interval '5 days');
-
-  if not found then
-    return 0;
-  end if;
-
-  identity_key := case
-    when (select auth.uid()) is not null
-      then 'user:' || (select auth.uid())::text
-    -- Ilmoituskohtainen tiiviste estää anonyymin selaimen katselujen yhdistämisen eri ilmoitusten välillä.
-    else 'browser:' || pg_catalog.md5(p_viewer_key || ':' || p_notice_id::text)
-  end;
-
-  insert into public.notice_views (notice_id, viewer_key)
-  values (p_notice_id, identity_key)
-  on conflict (notice_id, viewer_key) do nothing;
-  get diagnostics inserted_count = row_count;
-
-  if inserted_count = 1 then
-    update public.notices
-    set view_count = view_count + 1
-    where id = p_notice_id
-    returning view_count into current_count;
-  end if;
-
-  return current_count;
-end;
-$$;
-revoke all on function public.register_notice_view(uuid, text) from public;
-grant execute on function public.register_notice_view(uuid, text) to anon, authenticated;
 
 create table if not exists public.comments (
   id uuid primary key default gen_random_uuid(),

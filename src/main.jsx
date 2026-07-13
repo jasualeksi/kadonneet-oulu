@@ -32,6 +32,9 @@ import {
   Settings,
   LogOut,
   ShieldCheck,
+  CircleHelp,
+  ClipboardList,
+  UserPlus,
 } from "lucide-react";
 import "./styles.css";
 import { accountFromUser, supabase, supabaseConfigured } from "./supabase";
@@ -258,6 +261,12 @@ function App() {
     setMessages((current) => [sent, ...current]);
     notify("Yksityisviesti lähetettiin");
   };
+  const logout = async () => {
+    await supabase?.auth.signOut();
+    setUser(null);
+    go("home");
+    notify("Kirjauduit ulos");
+  };
   return (
     <div className="app">
       <Header
@@ -266,6 +275,7 @@ function App() {
         go={go}
         protectedGo={protectedGo}
         setLogin={setLogin}
+        logout={logout}
         menu={menu}
         setMenu={setMenu}
       />
@@ -290,12 +300,7 @@ function App() {
             user={user}
             updateUser={setUser}
             notify={notify}
-            logout={async () => {
-              await supabase?.auth.signOut();
-              setUser(null);
-              go("home");
-              notify("Kirjauduit ulos");
-            }}
+            logout={logout}
           />
         )}
         {view === "info" && <Info />}
@@ -335,7 +340,8 @@ function App() {
   );
 }
 
-function Header({ user, view, go, protectedGo, setLogin, menu, setMenu }) {
+function Header({ user, view, go, protectedGo, setLogin, logout, menu, setMenu }) {
+  const [accountMenu, setAccountMenu] = useState(false);
   return (
     <header>
       <button className="brand" onClick={() => go("home")}>
@@ -353,37 +359,49 @@ function Header({ user, view, go, protectedGo, setLogin, menu, setMenu }) {
         >
           <Home /> Etusivu
         </button>
-        <button onClick={() => go("notices")}>Ilmoitukset</button>
-        <button onClick={() => go("info")}>Ohjeet</button>
+        <button onClick={() => go("notices")}><LayoutList /> Ilmoitukset</button>
+        <button onClick={() => go("info")}><CircleHelp /> Ohjeet</button>
         {user && (
           <>
-            <button onClick={() => go("mine")}>Omat ilmoitukset</button>
-            <button onClick={() => go("messages")}>Viestit</button>
-            <button onClick={() => go("settings")}>
+            <button onClick={() => go("mine")}><ClipboardList /> Omat ilmoitukset</button>
+            <button onClick={() => go("messages")}><MessageCircle /> Viestit</button>
+            <button className="mobile-account" onClick={() => go("settings")}>
               <Settings /> Asetukset
+            </button>
+            <button className="mobile-account mobile-logout" onClick={logout}>
+              <LogOut /> Kirjaudu ulos
             </button>
           </>
         )}
         {!user && (
           <>
             <button className="mobile-login" onClick={() => setLogin("login")}>
-              Kirjaudu
+              <UserRound /> Kirjaudu
             </button>
             <button
               className="mobile-login"
               onClick={() => setLogin("register")}
             >
-              Rekisteröidy
+              <UserPlus /> Rekisteröidy
             </button>
           </>
         )}
       </nav>
       <div className="header-actions">
         {user ? (
-          <button className="login" onClick={() => go("settings")}>
-            <UserRound size={18} />
-            {user.username}
-          </button>
+          <div className="account-menu-wrap">
+            <button className="login usertrigger" onClick={() => setAccountMenu(!accountMenu)}>
+              <UserRound size={18} />
+              {user.username}
+              <ChevronDown size={16} />
+            </button>
+            {accountMenu && (
+              <div className="account-dropdown">
+                <button onClick={() => { setAccountMenu(false); go("settings"); }}><Settings /> Asetukset</button>
+                <button className="logout-option" onClick={() => { setAccountMenu(false); logout(); }}><LogOut /> Kirjaudu ulos</button>
+              </div>
+            )}
+          </div>
         ) : (
           <>
             <button className="login" onClick={() => setLogin("login")}>
@@ -394,7 +412,7 @@ function Header({ user, view, go, protectedGo, setLogin, menu, setMenu }) {
               className="registerbtn"
               onClick={() => setLogin("register")}
             >
-              Rekisteröidy
+              <UserPlus /> Rekisteröidy
             </button>
           </>
         )}

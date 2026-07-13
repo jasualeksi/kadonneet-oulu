@@ -102,6 +102,7 @@ alter table public.notices add constraint notices_type_check
 
 create index if not exists notices_created_at_idx on public.notices (created_at desc);
 create index if not exists notices_owner_id_idx on public.notices (owner_id);
+create index if not exists notices_owner_created_idx on public.notices (owner_id, created_at desc);
 
 do $$
 begin
@@ -156,6 +157,7 @@ create table if not exists public.comments (
 );
 
 create index if not exists comments_notice_id_idx on public.comments (notice_id, created_at);
+create index if not exists comments_user_created_idx on public.comments (user_id, created_at desc);
 alter table public.comments enable row level security;
 drop policy if exists "Kommentit näkyvät kaikille" on public.comments;
 create policy "Kommentit näkyvät kaikille" on public.comments for select using (true);
@@ -247,6 +249,7 @@ create table if not exists public.reports (
   handled_at timestamptz
 );
 create index if not exists reports_status_created_idx on public.reports (status, created_at desc);
+create index if not exists reports_reporter_created_idx on public.reports (reporter_id, created_at desc);
 create unique index if not exists reports_one_pending_per_user_notice
   on public.reports (reporter_id, notice_id) where status = 'pending';
 alter table public.reports enable row level security;
@@ -285,6 +288,120 @@ create policy "Käyttäjä voi tallentaa ilmoituksen" on public.saved_notices
 drop policy if exists "Käyttäjä voi poistaa tallennuksen" on public.saved_notices;
 create policy "Käyttäjä voi poistaa tallennuksen" on public.saved_notices
   for delete to authenticated using (user_id = (select auth.uid()));
+
+-- Palvelinpuolen lähetysrajat. Lukitus estää rajan kiertämisen rinnakkaisilla pyynnöillä.
+create or replace function private.enforce_submission_limits()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  actor_id uuid;
+  submission_count integer;
+begin
+  actor_id := case tg_table_name
+    when 'notices' then new.owner_id
+    when 'comments' then new.user_id
+    when 'messages' then new.sender_id
+    when 'reports' then new.reporter_id
+    else null
+  end;
+
+  if actor_id is null or actor_id <> (select auth.uid()) then
+    raise exception 'Lähettäjää ei voitu vahvistaa.' using errcode = '42501';
+  end if;
+
+  perform pg_advisory_xact_lock(
+    hashtextextended(tg_table_schema || '.' || tg_table_name || ':' || actor_id::text, 0)
+  );
+
+  if tg_table_name = 'notices' then
+    select count(*) into submission_count from public.notices
+      where owner_id = actor_id and created_at > now() - interval '1 hour';
+    if submission_count >= 5 then
+      raise exception 'Voit julkaista enintään 5 ilmoitusta tunnissa.' using errcode = 'P0001';
+    end if;
+    select count(*) into submission_count from public.notices
+      where owner_id = actor_id and created_at > now() - interval '24 hours';
+    if submission_count >= 10 then
+      raise exception 'Voit julkaista enintään 10 ilmoitusta vuorokaudessa.' using errcode = 'P0001';
+    end if;
+    if exists (
+      select 1 from public.notices
+      where owner_id = actor_id
+        and lower(trim(title)) = lower(trim(new.title))
+        and lower(trim(description)) = lower(trim(new.description))
+        and created_at > now() - interval '10 minutes'
+    ) then
+      raise exception 'Saman ilmoituksen voi julkaista uudelleen aikaisintaan 10 minuutin kuluttua.' using errcode = 'P0001';
+    end if;
+
+  elsif tg_table_name = 'comments' then
+    select count(*) into submission_count from public.comments
+      where user_id = actor_id and created_at > now() - interval '10 minutes';
+    if submission_count >= 10 then
+      raise exception 'Voit lähettää enintään 10 kommenttia 10 minuutissa.' using errcode = 'P0001';
+    end if;
+    select count(*) into submission_count from public.comments
+      where user_id = actor_id and created_at > now() - interval '24 hours';
+    if submission_count >= 50 then
+      raise exception 'Voit lähettää enintään 50 kommenttia vuorokaudessa.' using errcode = 'P0001';
+    end if;
+
+  elsif tg_table_name = 'messages' then
+    select count(*) into submission_count from public.messages
+      where sender_id = actor_id and created_at > now() - interval '1 minute';
+    if submission_count >= 20 then
+      raise exception 'Voit lähettää enintään 20 viestiä minuutissa.' using errcode = 'P0001';
+    end if;
+    select count(*) into submission_count from public.messages
+      where sender_id = actor_id and created_at > now() - interval '24 hours';
+    if submission_count >= 200 then
+      raise exception 'Voit lähettää enintään 200 viestiä vuorokaudessa.' using errcode = 'P0001';
+    end if;
+    select count(*) into submission_count from public.messages
+      where sender_id = actor_id
+        and recipient_id = new.recipient_id
+        and created_at > now() - interval '1 hour';
+    if submission_count >= 40 then
+      raise exception 'Voit lähettää samalle käyttäjälle enintään 40 viestiä tunnissa.' using errcode = 'P0001';
+    end if;
+
+  elsif tg_table_name = 'reports' then
+    select count(*) into submission_count from public.reports
+      where reporter_id = actor_id and created_at > now() - interval '1 hour';
+    if submission_count >= 10 then
+      raise exception 'Voit lähettää enintään 10 sisältöraporttia tunnissa.' using errcode = 'P0001';
+    end if;
+    select count(*) into submission_count from public.reports
+      where reporter_id = actor_id and created_at > now() - interval '24 hours';
+    if submission_count >= 30 then
+      raise exception 'Voit lähettää enintään 30 sisältöraporttia vuorokaudessa.' using errcode = 'P0001';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+revoke all on function private.enforce_submission_limits() from public;
+
+drop trigger if exists enforce_notice_submission_limits on public.notices;
+create trigger enforce_notice_submission_limits
+  before insert on public.notices
+  for each row execute function private.enforce_submission_limits();
+drop trigger if exists enforce_comment_submission_limits on public.comments;
+create trigger enforce_comment_submission_limits
+  before insert on public.comments
+  for each row execute function private.enforce_submission_limits();
+drop trigger if exists enforce_message_submission_limits on public.messages;
+create trigger enforce_message_submission_limits
+  before insert on public.messages
+  for each row execute function private.enforce_submission_limits();
+drop trigger if exists enforce_report_submission_limits on public.reports;
+create trigger enforce_report_submission_limits
+  before insert on public.reports
+  for each row execute function private.enforce_submission_limits();
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (

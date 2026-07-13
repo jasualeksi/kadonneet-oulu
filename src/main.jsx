@@ -197,6 +197,8 @@ const REPORT_REASONS = {
   other: "Muu syy",
 };
 
+const TURNSTILE_SITE_KEY = (import.meta.env.VITE_TURNSTILE_SITE_KEY || "").trim();
+
 function routeFromPath(pathname) {
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
   const noticeMatch = path.match(/^\/ilmoitukset\/([0-9a-f-]+)$/i);
@@ -1347,6 +1349,61 @@ function FormBlock({ no, title, children }) {
   );
 }
 
+function Turnstile({ onVerify, onError, resetKey }) {
+  const containerRef = useRef(null),
+    verifyRef = useRef(onVerify),
+    errorRef = useRef(onError);
+  verifyRef.current = onVerify;
+  errorRef.current = onError;
+
+  useEffect(() => {
+    if (!TURNSTILE_SITE_KEY) return undefined;
+    let widgetId = null;
+    let cancelled = false;
+    const renderWidget = () => {
+      if (cancelled || !containerRef.current || !window.turnstile) return;
+      widgetId = window.turnstile.render(containerRef.current, {
+        sitekey: TURNSTILE_SITE_KEY,
+        theme: "light",
+        size: "flexible",
+        language: "fi",
+        callback: (token) => verifyRef.current(token),
+        "expired-callback": () => verifyRef.current(""),
+        "timeout-callback": () => verifyRef.current(""),
+        "error-callback": () => {
+          verifyRef.current("");
+          errorRef.current();
+          return true;
+        },
+      });
+    };
+    const scriptId = "cloudflare-turnstile-script";
+    let script = document.getElementById(scriptId);
+    if (window.turnstile) {
+      renderWidget();
+    } else if (script) {
+      script.addEventListener("load", renderWidget, { once: true });
+    } else {
+      script = document.createElement("script");
+      script.id = scriptId;
+      script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+      script.async = true;
+      script.defer = true;
+      script.addEventListener("load", renderWidget, { once: true });
+      script.addEventListener("error", () => errorRef.current(), { once: true });
+      document.head.appendChild(script);
+    }
+    return () => {
+      cancelled = true;
+      script?.removeEventListener("load", renderWidget);
+      if (widgetId !== null && window.turnstile) window.turnstile.remove(widgetId);
+    };
+  }, [resetKey]);
+
+  if (!TURNSTILE_SITE_KEY) return null;
+  return <div className="turnstile" ref={containerRef} aria-label="Bottitarkistus" />;
+}
+
 function Auth({ close, login, initialMode }) {
   const [register, setRegister] = useState(initialMode === "register"),
     [email, setEmail] = useState(""),
@@ -1355,10 +1412,22 @@ function Auth({ close, login, initialMode }) {
     [username, setUsername] = useState(""),
     [error, setError] = useState(""),
     [loading, setLoading] = useState(false),
+    [captchaToken, setCaptchaToken] = useState(""),
+    [captchaReset, setCaptchaReset] = useState(0),
+    [website, setWebsite] = useState(""),
     [confirmationSent, setConfirmationSent] = useState(false);
+  const resetCaptcha = () => {
+    setCaptchaToken("");
+    setCaptchaReset((current) => current + 1);
+  };
   const submit = async (e) => {
     e.preventDefault();
     setError("");
+    if (website) return;
+    if (TURNSTILE_SITE_KEY && !captchaToken) {
+      setError("Vahvista ensin, ettet ole robotti.");
+      return;
+    }
     if (!supabaseConfigured) {
       setError("Tunnistautumispalvelua ei ole vielä yhdistetty sivustoon.");
       return;
@@ -1396,21 +1465,33 @@ function Auth({ close, login, initialMode }) {
         options: {
           data: { username: cleanUsername },
           emailRedirectTo: window.location.origin,
+          captchaToken: captchaToken || undefined,
         },
       });
       setLoading(false);
-      if (authError) return setError(authError.message);
+      if (authError) {
+        resetCaptcha();
+        return setError(
+          authError.message.toLowerCase().includes("captcha")
+            ? "Bottitarkistus epäonnistui. Yritä uudelleen."
+            : authError.message,
+        );
+      }
       if (!data.session) return setConfirmationSent(true);
       login(data.user);
     } else {
       const { data, error: authError } = await supabase.auth.signInWithPassword({
         email,
         password,
+        options: { captchaToken: captchaToken || undefined },
       });
       setLoading(false);
       if (authError) {
+        resetCaptcha();
         setError(
-          authError.message.toLowerCase().includes("email not confirmed")
+          authError.message.toLowerCase().includes("captcha")
+            ? "Bottitarkistus epäonnistui. Yritä uudelleen."
+            : authError.message.toLowerCase().includes("email not confirmed")
             ? "Vahvista sähköpostiosoitteesi ennen kirjautumista."
             : "Sähköpostiosoite tai salasana on väärin.",
         );
@@ -1435,6 +1516,15 @@ function Auth({ close, login, initialMode }) {
   return (
     <div className="modalback">
       <form className="modal" onSubmit={submit}>
+        <label className="honeypot" aria-hidden="true">
+          Verkkosivusto
+          <input
+            tabIndex="-1"
+            autoComplete="off"
+            value={website}
+            onChange={(event) => setWebsite(event.target.value)}
+          />
+        </label>
         <button type="button" className="close" onClick={close}>
           <X />
         </button>
@@ -1500,15 +1590,20 @@ function Auth({ close, login, initialMode }) {
             </div>
           </label>
         )}
+        <Turnstile
+          resetKey={captchaReset}
+          onVerify={setCaptchaToken}
+          onError={() => setError("Bottitarkistusta ei voitu ladata. Päivitä sivu ja yritä uudelleen.")}
+        />
         {error && <div className="autherror">{error}</div>}
-        <button className="primary wide" disabled={loading}>
+        <button className="primary wide" disabled={loading || (Boolean(TURNSTILE_SITE_KEY) && !captchaToken)}>
           {loading ? "Odota hetki…" : register ? "Luo käyttäjätili" : "Kirjaudu sisään"}
         </button>
         <p className="switch">
           {register
             ? "Onko sinulla jo käyttäjätili?"
             : "Eikö sinulla ole käyttäjätiliä?"}{" "}
-          <button type="button" onClick={() => setRegister(!register)}>
+          <button type="button" onClick={() => { setRegister(!register); resetCaptcha(); }}>
             {register ? "Kirjaudu sisään" : "Rekisteröidy"}
           </button>
         </p>
@@ -2038,6 +2133,8 @@ function ReportModal({ notice, close, submit }) {
       setError(
         submitError.code === "23505"
           ? "Olet jo ilmoittanut tämän julkaisun ylläpidolle."
+          : submitError.code === "P0001"
+            ? submitError.message
           : "Ilmoitusta ei voitu lähettää. Yritä myöhemmin uudelleen.",
       );
       setSending(false);

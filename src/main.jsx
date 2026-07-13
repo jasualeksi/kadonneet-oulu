@@ -828,7 +828,7 @@ function HomePage({ go, protectedGo, data, open, report, savedIds, toggleSaved }
           </h1>
           <p>
             Ilmoita kadonneesta ihmisestä, eläimestä, ajoneuvosta tai tavarasta
-            Oulun alueella. Palvelu on maksuton ja tarkoitettu kaikille oululaisille.
+            Oulun alueella. Palvelu on maksuton ja tarkoitettu kaikille Oululaisille.
           </p>
           <div className="hero-actions">
             <button className="primary" onClick={() => protectedGo("new")}>

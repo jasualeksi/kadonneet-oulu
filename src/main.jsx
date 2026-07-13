@@ -986,6 +986,21 @@ function TypeIcon({ type }) {
 }
 
 function Card({ n, open, remove, markFound, reopenNotice, edit, report, saved, toggleSaved }) {
+  const [shared, setShared] = useState(false);
+  const shareCard = async () => {
+    const url = `${window.location.origin}/ilmoitukset/${n.id}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: n.name, text: `${n.name} – ${n.area}`, url });
+      } else {
+        await navigator.clipboard.writeText(url);
+      }
+      setShared(true);
+      setTimeout(() => setShared(false), 2500);
+    } catch {
+      // Jakovalikon peruuttaminen ei vaadi virheilmoitusta.
+    }
+  };
   return (
     <article className={`card ${n.found ? "found" : ""}`} onClick={open}>
       <div className="photo">
@@ -1028,21 +1043,39 @@ function Card({ n, open, remove, markFound, reopenNotice, edit, report, saved, t
         <div className="cardtools">
           <button
             className={saved ? "saved" : ""}
+            type="button"
+            aria-label={saved ? "Poista tallennetuista" : "Tallenna ilmoitus"}
+            title={saved ? "Poista tallennetuista" : "Tallenna ilmoitus"}
             onClick={(event) => {
               event.stopPropagation();
               toggleSaved?.(n);
             }}
           >
-            {saved ? <BookmarkCheck /> : <Bookmark />} {saved ? "Tallennettu" : "Tallenna"}
+            {saved ? <BookmarkCheck /> : <Bookmark />}
+          </button>
+          <button
+            className="sharetool"
+            type="button"
+            aria-label={shared ? "Linkki kopioitu" : "Jaa ilmoitus"}
+            title={shared ? "Linkki kopioitu" : "Jaa ilmoitus"}
+            onClick={(event) => {
+              event.stopPropagation();
+              shareCard();
+            }}
+          >
+            {shared ? <CheckCircle2 /> : <Share2 />}
           </button>
           <button
             className="reporttool"
+            type="button"
+            aria-label="Ilmoita asiaton sisältö"
+            title="Ilmoita asiaton sisältö"
             onClick={(event) => {
               event.stopPropagation();
               report?.(n);
             }}
           >
-            <Flag /> Ilmoita
+            <Flag />
           </button>
         </div>
         {markFound && !n.found && (

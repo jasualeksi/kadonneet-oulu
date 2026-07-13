@@ -1,8 +1,13 @@
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   username text not null check (char_length(username) between 3 and 30),
+  terms_accepted_at timestamptz,
+  terms_version text,
   created_at timestamptz not null default now()
 );
+
+alter table public.profiles add column if not exists terms_accepted_at timestamptz;
+alter table public.profiles add column if not exists terms_version text;
 
 create unique index if not exists profiles_username_lower_unique
   on public.profiles (lower(username));
@@ -60,8 +65,18 @@ language plpgsql
 security definer set search_path = public
 as $$
 begin
-  insert into public.profiles (id, username)
-  values (new.id, trim(new.raw_user_meta_data ->> 'username'));
+  if coalesce(new.raw_user_meta_data ->> 'terms_version', '') <> '2026-07-13'
+     or new.raw_user_meta_data ->> 'terms_accepted_at' is null then
+    raise exception 'Käyttöehdot pitää hyväksyä ennen käyttäjätilin luomista.';
+  end if;
+
+  insert into public.profiles (id, username, terms_accepted_at, terms_version)
+  values (
+    new.id,
+    trim(new.raw_user_meta_data ->> 'username'),
+    (new.raw_user_meta_data ->> 'terms_accepted_at')::timestamptz,
+    new.raw_user_meta_data ->> 'terms_version'
+  );
   return new;
 end;
 $$;

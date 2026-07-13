@@ -186,6 +186,7 @@ const VIEW_PATHS = {
   saved: "/tallennetut",
   admin: "/yllapito",
   info: "/ohjeet",
+  terms: "/kayttoehdot",
 };
 
 const REPORT_REASONS = {
@@ -198,6 +199,8 @@ const REPORT_REASONS = {
 };
 
 const TURNSTILE_SITE_KEY = (import.meta.env.VITE_TURNSTILE_SITE_KEY || "").trim();
+const TERMS_VERSION = "2026-07-13";
+const SUPPORT_EMAIL = "yllapito@kadonneet-oulu.fi";
 
 function routeFromPath(pathname) {
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
@@ -335,6 +338,7 @@ function App() {
       admin: "Ylläpito – Kadonneet Oulu",
       profile: "Käyttäjäprofiili – Kadonneet Oulu",
       info: "Ohjeet – Kadonneet Oulu",
+      terms: "Käyttöehdot – Kadonneet Oulu",
     };
     document.title = active?.name
       ? `${active.name} – Kadonneet Oulu`
@@ -546,6 +550,7 @@ function App() {
           />
         )}
         {view === "info" && <Info />}
+        {view === "terms" && <Terms />}
       </main>
       <Footer go={go} protectedGo={protectedGo} />
       {login && (
@@ -1415,6 +1420,7 @@ function Auth({ close, login, initialMode }) {
     [captchaToken, setCaptchaToken] = useState(""),
     [captchaReset, setCaptchaReset] = useState(0),
     [website, setWebsite] = useState(""),
+    [termsAccepted, setTermsAccepted] = useState(false),
     [confirmationSent, setConfirmationSent] = useState(false);
   const resetCaptcha = () => {
     setCaptchaToken("");
@@ -1434,6 +1440,10 @@ function Auth({ close, login, initialMode }) {
     }
     if (register && password !== passwordAgain) {
       setError("Salasanat eivät täsmää.");
+      return;
+    }
+    if (register && !termsAccepted) {
+      setError("Hyväksy käyttöehdot ennen käyttäjätilin luomista.");
       return;
     }
     const cleanUsername = username.trim();
@@ -1463,7 +1473,11 @@ function Auth({ close, login, initialMode }) {
         email,
         password,
         options: {
-          data: { username: cleanUsername },
+          data: {
+            username: cleanUsername,
+            terms_version: TERMS_VERSION,
+            terms_accepted_at: new Date().toISOString(),
+          },
           emailRedirectTo: window.location.origin,
           captchaToken: captchaToken || undefined,
         },
@@ -1590,20 +1604,33 @@ function Auth({ close, login, initialMode }) {
             </div>
           </label>
         )}
+        {register && (
+          <label className="termsaccept">
+            <input
+              required
+              type="checkbox"
+              checked={termsAccepted}
+              onChange={(event) => setTermsAccepted(event.target.checked)}
+            />
+            <span>
+              Olen lukenut ja hyväksyn <a href="/kayttoehdot" target="_blank" rel="noreferrer">käyttöehdot</a>.
+            </span>
+          </label>
+        )}
         <Turnstile
           resetKey={captchaReset}
           onVerify={setCaptchaToken}
           onError={() => setError("Bottitarkistusta ei voitu ladata. Päivitä sivu ja yritä uudelleen.")}
         />
         {error && <div className="autherror">{error}</div>}
-        <button className="primary wide" disabled={loading || (Boolean(TURNSTILE_SITE_KEY) && !captchaToken)}>
+        <button className="primary wide" disabled={loading || (register && !termsAccepted) || (Boolean(TURNSTILE_SITE_KEY) && !captchaToken)}>
           {loading ? "Odota hetki…" : register ? "Luo käyttäjätili" : "Kirjaudu sisään"}
         </button>
         <p className="switch">
           {register
             ? "Onko sinulla jo käyttäjätili?"
             : "Eikö sinulla ole käyttäjätiliä?"}{" "}
-          <button type="button" onClick={() => { setRegister(!register); resetCaptcha(); }}>
+          <button type="button" onClick={() => { setRegister(!register); setTermsAccepted(false); resetCaptcha(); }}>
             {register ? "Kirjaudu sisään" : "Rekisteröidy"}
           </button>
         </p>
@@ -2398,6 +2425,63 @@ function Info() {
     </section>
   );
 }
+
+function Terms() {
+  return (
+    <section className="page narrow prose termspage">
+      <div className="pagehead">
+        <span className="kicker">PALVELUN EHDOT</span>
+        <h1>Käyttöehdot</h1>
+        <p>Voimassa 13.7.2026 alkaen · versio {TERMS_VERSION}</p>
+      </div>
+
+      <div className="termscontact">
+        <ShieldCheck />
+        <div>
+          <b>Palvelun ylläpito</b>
+          <span>Kadonneet Oulu -palvelun ylläpito</span>
+          <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>
+        </div>
+      </div>
+
+      <div className="termscontent">
+        <h2>1. Ehtojen soveltaminen</h2>
+        <p>Näitä käyttöehtoja sovelletaan Kadonneet Oulu -verkkopalveluun. Luomalla käyttäjätilin tai käyttämällä kirjautumista vaativia toimintoja hyväksyt nämä ehdot. Palvelu on käyttäjille maksuton.</p>
+
+        <h2>2. Palvelun tarkoitus</h2>
+        <p>Palvelussa voi julkaista Oulun alueella kadonneita ihmisiä, eläimiä, ajoneuvoja ja tavaroita koskevia ilmoituksia sekä välittää niihin liittyviä havaintoja. Palvelu ei ole viranomaispalvelu eikä korvaa poliisille, hätäkeskukselle tai muulle viranomaiselle tehtävää ilmoitusta. Hätätilanteessa soita aina numeroon 112.</p>
+
+        <h2>3. Käyttäjätili</h2>
+        <p>Käyttäjän on annettava rekisteröityessä toimiva sähköpostiosoite ja pidettävä kirjautumistietonsa turvassa. Käyttäjä vastaa omalla tilillään tehdystä toiminnasta. Toisen henkilön tilin käyttäminen, harhaanjohtava käyttäjänimi ja useiden tilien luominen rajoitusten kiertämiseksi on kielletty.</p>
+
+        <h2>4. Julkaisijan vastuu</h2>
+        <p>Julkaisija vastaa antamiensa tietojen oikeellisuudesta, tarpeellisuudesta ja lainmukaisuudesta. Julkaisijalla täytyy olla oikeus käyttämiinsä kuviin sekä lupa julkaista toista henkilöä koskevat tiedot ja kuvat. Julkaisussa ei saa jakaa henkilötunnusta, terveystietoja, salasanoja, maksutietoja tai muita asian selvittämisen kannalta tarpeettomia arkaluonteisia tietoja.</p>
+
+        <h2>5. Kielletty sisältö ja toiminta</h2>
+        <p>Palvelussa ei saa julkaista laitonta, uhkaavaa, syrjivää, loukkaavaa, harhaanjohtavaa tai yksityisyyttä rikkovaa sisältöä. Roskaposti, huijaukset, asiaton mainonta, tahallinen väärien havaintojen levittäminen sekä palvelun teknisen toiminnan häiritseminen ovat kiellettyjä.</p>
+
+        <h2>6. Sisällön valvonta</h2>
+        <p>Ylläpito voi tarkistaa käyttäjien tekemät sisältöraportit ja poistaa tai rajoittaa sisältöä, joka rikkoo näitä ehtoja tai lakia. Vakavissa tai toistuvissa rikkomuksissa käyttäjätilin käyttöä voidaan rajoittaa. Päätöksen uudelleenkäsittelyä voi pyytää lähettämällä julkaisun linkin ja perustelut ylläpidon sähköpostiin.</p>
+
+        <h2>7. Ilmoitusten voimassaolo</h2>
+        <p>Ilmoitus on voimassa 14 vuorokautta. Löytyneeksi merkitty ilmoitus poistetaan viiden vuorokauden kuluessa, ellei julkaisija aktivoi sitä uudelleen ennen poistamista. Julkaisija voi myös muokata tai poistaa oman ilmoituksensa.</p>
+
+        <h2>8. Oikeus näyttää julkaistu sisältö</h2>
+        <p>Julkaisija säilyttää oikeutensa omaan sisältöönsä. Julkaisija antaa ylläpidolle palvelun toiminnan ajaksi maksuttoman oikeuden tallentaa, käsitellä ja näyttää julkaistun sisällön palvelussa sekä muodostaa siitä jaettavan ilmoituslinkin.</p>
+
+        <h2>9. Palvelun saatavuus ja vastuu</h2>
+        <p>Ylläpito pyrkii pitämään palvelun toimivana ja turvallisena, mutta keskeytykset ja tekniset virheet ovat mahdollisia. Ylläpito ei voi taata käyttäjien ilmoittamien tietojen oikeellisuutta, kadonneen löytymistä tai havaintojen luotettavuutta. Nämä ehdot eivät rajoita vastuuta siltä osin kuin vastuuta ei lain mukaan voida rajoittaa.</p>
+
+        <h2>10. Ehtojen muuttaminen</h2>
+        <p>Ehtoja voidaan muuttaa palvelun kehittämisen tai lainsäädännön vuoksi. Merkittävistä muutoksista ilmoitetaan palvelussa ennen uusien ehtojen soveltamista. Ehtosivulla näytetään aina voimassa oleva versio ja voimaantulopäivä.</p>
+
+        <h2>11. Sovellettava laki ja yhteydenotot</h2>
+        <p>Palveluun sovelletaan Suomen lakia. Palvelua, sisältöpäätöksiä ja näitä ehtoja koskevat yhteydenotot voi lähettää osoitteeseen <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>.</p>
+      </div>
+    </section>
+  );
+}
+
 function Footer({ go, protectedGo }) {
   return (
     <footer>
@@ -2421,6 +2505,8 @@ function Footer({ go, protectedGo }) {
         <button onClick={() => go("notices")}>Ilmoitukset</button>
         <button onClick={() => protectedGo("new")}>Tee ilmoitus</button>
         <button onClick={() => go("info")}>Ohjeet</button>
+        <button onClick={() => go("terms")}>Käyttöehdot</button>
+        <a href={`mailto:${SUPPORT_EMAIL}`}>Ota yhteyttä ylläpitoon</a>
       </div>
       <div>
         <b>Käyttäjätili</b>
@@ -2433,7 +2519,7 @@ function Footer({ go, protectedGo }) {
         <p>Soita hätänumeroon</p>
         <strong>112</strong>
       </div>
-      <small>© 2026 Kadonneet Oulu · Päivitetty 13.7.2026</small>
+      <small>© 2026 Kadonneet Oulu · Päivitetty 13.7.2026 · <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a></small>
     </footer>
   );
 }
